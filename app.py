@@ -9,13 +9,12 @@ if "db_url" in st.secrets:
 else:
     DB_URL = "sqlite:///ton_inventory.db"
 
-# Tự động sửa đầu link nếu là postgres:// sang postgresql:// cho SQLAlchemy
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DB_URL, pool_pre_ping=True)
 
-# Khởi tạo các bảng trên Neon
+# Khởi tạo các bảng trên cơ sở dữ liệu
 with engine.connect() as conn:
     conn.execute(text("""
     CREATE TABLE IF NOT EXISTS users (
@@ -59,7 +58,7 @@ with engine.connect() as conn:
     );
     """))
     
-    # Tạo sẵn tài khoản Admin gốc (Tài khoản: admin | Mật khẩu: 123456)
+    # Tài khoản Admin mặc định ban đầu: admin | Mật khẩu: 123456
     check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
     if check_admin == 0:
         pw_hash = bcrypt.hashpw("123456".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -125,9 +124,41 @@ if st.session_state.user is None:
 else:
     st.sidebar.success(f"Xin chào: **{st.session_state.user['name']}**")
     st.sidebar.caption(f"Vai trò: `{st.session_state.user['role']}`")
+    
     if st.sidebar.button("Đăng xuất"):
         st.session_state.user = None
         st.rerun()
+        
+    # Mục Đổi mật khẩu tiện lợi
+    with st.sidebar.expander("🔑 Đổi mật khẩu"):
+        with st.form("form_change_pw"):
+            old_pw = st.text_input("Mật khẩu hiện tại", type="password")
+            new_pw = st.text_input("Mật khẩu mới", type="password")
+            confirm_pw = st.text_input("Xác nhận MK mới", type="password")
+            if st.form_submit_button("Cập nhật mật khẩu"):
+                if not old_pw or not new_pw:
+                    st.error("Vui lòng nhập đầy đủ thông tin!")
+                elif len(new_pw) < 6:
+                    st.error("Mật khẩu mới phải từ 6 ký tự trở lên!")
+                elif new_pw != confirm_pw:
+                    st.error("Mật khẩu xác nhận không khớp!")
+                else:
+                    with engine.connect() as conn:
+                        res = conn.execute(
+                            text("SELECT password_hash FROM users WHERE username = :u"),
+                            {"u": st.session_state.user['username']}
+                        ).fetchone()
+                        
+                        if res and bcrypt.checkpw(old_pw.encode('utf-8'), res[0].encode('utf-8')):
+                            new_hash = bcrypt.hashpw(new_pw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                            conn.execute(
+                                text("UPDATE users SET password_hash = :p WHERE username = :u"),
+                                {"p": new_hash, "u": st.session_state.user['username']}
+                            )
+                            conn.commit()
+                            st.success("✅ Đã đổi mật khẩu thành công!")
+                        else:
+                            st.error("Mật khẩu hiện tại không đúng!")
 
 # --- MENU CHỨC NĂNG ---
 menu_options = ["📋 Tra cứu tồn kho", "📊 Báo cáo Dashboard"]

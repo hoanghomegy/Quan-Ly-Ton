@@ -138,7 +138,7 @@ with engine.connect() as conn:
     );
     """))
 
-    # Tự động vá thêm các cột mới nếu đã có bảng từ trước
+    # Tự động cập nhật cột mới nếu database cũ chưa có
     try:
         conn.execute(text("ALTER TABLE inventory ADD COLUMN IF NOT EXISTS ngay_loi DATE DEFAULT CURRENT_DATE;"))
         conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS ngay_loi DATE DEFAULT CURRENT_DATE;"))
@@ -321,7 +321,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
         st.dataframe(df_pn, width='stretch')
 
 # =============================================================
-# 2. ➕ NHẬP LỖI TÔN
+# 2. ➕ NHẬP LỖI TÔN (CHO PHÉP BỎ TRỐNG MÃ ĐƠN)
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Tôn":
     st.title("➕ Nhập hàng lỗi phát sinh cho Tôn")
@@ -329,11 +329,11 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
     with col_a:
         ngay_loi_ton = st.date_input("Ngày phát sinh lỗi", datetime.date.today())
         kho = st.selectbox("Kho lưu", ["Kho hàng lỗi trả về", "Kho hàng lỗi NM"])
-        don = st.text_input("Mã đơn hàng").strip()
+        don = st.text_input("Mã đơn hàng (không có thì bỏ trống)").strip()
         vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI)
     with col_b:
-        hang = st.text_input("Hãng tôn (Hòa Phát, SSSC, Poshaco...)").strip()
-        mau = st.text_input("Màu sắc").strip()
+        hang = st.text_input("Hãng tôn (Hòa Phát, SSSC, Poshaco...) *").strip()
+        mau = st.text_input("Màu sắc *").strip()
         day = st.number_input("Độ dày (dem/mm)", value=0.40, step=0.05)
         song = st.selectbox("Loại sóng", DANH_SACH_SONG)
     with col_c:
@@ -348,9 +348,10 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
         ly_do_chi_tiet = st.text_area("Ghi chú chi tiết") if ly_do_chon == "Lỗi khác" else ""
 
     if st.button("Lưu tôn lỗi vào kho"):
-        if not don or not hang or not mau:
-            st.warning("⚠️ Vui lòng điền đủ: Mã đơn, Hãng tôn và Màu sắc!")
+        if not hang or not mau:
+            st.warning("⚠️ Vui lòng điền đủ: Hãng tôn và Màu sắc!")
         else:
+            ma_don_luu = don if don else "Không có"
             nguyen_nhan_luu = f"Lỗi khác: {ly_do_chi_tiet.strip()}" if ly_do_chon == "Lỗi khác" else ly_do_chon
             with engine.connect() as conn:
                 conn.execute(text("""
@@ -359,7 +360,7 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
                                        current_sheets, total_meters, reason, fault_by)
                 VALUES (:nl, :wh, :oc, :vt, :br, :th, :co, :cr, :tt, :fo, :sl, :cs, :tm, :re, :fb)
                 """), {
-                    "nl": ngay_loi_ton, "wh": kho, "oc": don, "vt": vi_tri, "br": hang, "th": day, "co": mau,
+                    "nl": ngay_loi_ton, "wh": kho, "oc": ma_don_luu, "vt": vi_tri, "br": hang, "th": day, "co": mau,
                     "cr": song, "tt": loai_ton, "fo": quy_cach_xop, "sl": dai, "cs": so_tam,
                     "tm": tong_m_ton, "re": nguyen_nhan_luu, "fb": loi_ai
                 })
@@ -368,7 +369,7 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
             st.rerun()
 
 # =============================================================
-# 3. ➕ NHẬP LỖI PHỤ KIỆN (CÓ Ô TÍCH ĐÃ XỬ LÝ / CHƯA XỬ LÝ)
+# 3. ➕ NHẬP LỖI PHỤ KIỆN (CHO PHÉP BỎ TRỐNG MÃ ĐƠN)
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Phụ kiện":
     st.title("➕ Nhập hàng lỗi cho Phụ kiện (Máng, Sườn, Xối, Nóc)")
@@ -376,19 +377,18 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
     with col_p1:
         ngay_loi_pk = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pk_ngay")
         pk_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pk_kho")
-        pk_don = st.text_input("Mã đơn hàng", key="pk_don").strip()
+        pk_don = st.text_input("Mã đơn hàng (không có thì bỏ trống)", key="pk_don").strip()
         pk_loai = st.selectbox("Loại phụ kiện", DANH_SACH_PHU_KIEN, key="pk_loai")
         pk_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pk_vt")
     with col_p2:
-        pk_hang = st.text_input("Hãng tôn phụ kiện", key="pk_hang").strip()
-        pk_mau = st.text_input("Màu sắc", key="pk_mau").strip()
+        pk_hang = st.text_input("Hãng tôn phụ kiện *", key="pk_hang").strip()
+        pk_mau = st.text_input("Màu sắc *", key="pk_mau").strip()
         pk_day = st.number_input("Độ dày tôn (dem/mm)", value=0.40, step=0.05, key="pk_day")
         pk_dai = st.number_input("Chiều dài 1 tấm (m)", value=2.0, step=0.1, key="pk_dai")
         pk_so_tam = st.number_input("Số tấm (cái)", min_value=1, value=5, step=1, key="pk_tam")
         pk_tong_met = pk_dai * pk_so_tam
         st.info(f"Tổng mét quy đổi: **{pk_tong_met:.2f} m**")
     with col_p3:
-        # Ô chọn xử lý
         da_xu_ly = st.checkbox("Đã xử lý (đã ghép vào đơn mới)", value=False)
         don_xu_ly = ""
         if da_xu_ly:
@@ -399,11 +399,12 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
         pk_ly_do_chi_tiet = st.text_area("Ghi chú chi tiết", key="pk_note") if pk_ly_do_chon == "Lỗi khác" else ""
 
     if st.button("Lưu phụ kiện vào kho"):
-        if not pk_don or not pk_hang or not pk_mau:
-            st.warning("⚠️ Vui lòng điền đủ: Mã đơn, Hãng tôn và Màu sắc!")
+        if not pk_hang or not pk_mau:
+            st.warning("⚠️ Vui lòng điền đủ: Hãng tôn và Màu sắc!")
         elif da_xu_ly and not don_xu_ly:
             st.warning("⚠️ Đã tích 'Đã xử lý' thì phải điền mã đơn ghép!")
         else:
+            ma_pk_luu = pk_don if pk_don else "Không có"
             trang_thai_pk = "Đã xử lý" if da_xu_ly else "Chưa xử lý"
             so_tam_con = 0 if da_xu_ly else pk_so_tam
             so_met_con = 0.0 if da_xu_ly else pk_tong_met
@@ -417,14 +418,13 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                 VALUES (:nl, :wh, :vt, :oc, :at, :br, :th, :co, :sl, :cs, :tm, :tt, :dg, :re, :fb)
                 RETURNING id
                 """), {
-                    "nl": ngay_loi_pk, "wh": pk_kho, "vt": pk_vi_tri, "oc": pk_don, "at": pk_loai,
+                    "nl": ngay_loi_pk, "wh": pk_kho, "vt": pk_vi_tri, "oc": ma_pk_luu, "at": pk_loai,
                     "br": pk_hang, "th": pk_day, "co": pk_mau, "sl": pk_dai,
                     "cs": so_tam_con, "tm": so_met_con, "tt": trang_thai_pk, "dg": don_xu_ly,
                     "re": pk_nguyen_nhan_luu, "fb": pk_loi_ai
                 })
                 new_pk_id = res_pk.scalar()
                 
-                # Nếu đã xử lý thì ghi nhận luôn vào lịch sử ghép
                 if da_xu_ly:
                     conn.execute(text("""
                     INSERT INTO accessory_matching_history (accessory_id, new_order_code, matched_sheets, matched_meters, matched_by)
@@ -437,7 +437,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
             st.rerun()
 
 # =============================================================
-# 4. ➕ NHẬP LỖI PANEL (ĐỘ DÀY 5/7.5/10CM, KHỔ 1020/1170, XỐP THƯỜNG/CHỐNG CHÁY)
+# 4. ➕ NHẬP LỖI PANEL (CHO PHÉP BỎ TRỐNG MÃ ĐƠN)
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Panel":
     st.title("➕ Nhập hàng lỗi phát sinh cho Panel")
@@ -445,10 +445,10 @@ elif lua_chon == "➕ Nhập lỗi Panel":
     with col_pn1:
         ngay_loi_pn = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pn_ngay")
         pn_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pn_kho")
-        pn_don = st.text_input("Mã đơn hàng", key="pn_don").strip()
+        pn_don = st.text_input("Mã đơn hàng (không có thì bỏ trống)", key="pn_don").strip()
         pn_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pn_vt")
     with col_pn2:
-        pn_hang = st.text_input("Hãng tôn mặt ngoài", key="pn_hang").strip()
+        pn_hang = st.text_input("Hãng tôn mặt ngoài *", key="pn_hang").strip()
         pn_mau = st.text_input("Màu sắc tôn mặt", value="Trắng sữa / Ghi sáng", key="pn_mau").strip()
         pn_core = st.selectbox("Độ dày Panel", DANH_SACH_DO_DAY_PANEL, key="pn_core")
         pn_kho_ton = st.selectbox("Khổ tôn Panel", DANH_SACH_KHO_PANEL, key="pn_kho_ton")
@@ -457,7 +457,6 @@ elif lua_chon == "➕ Nhập lỗi Panel":
         pn_dai = st.number_input("Chiều dài 1 tấm (m)", value=5.0, step=0.1, key="pn_dai")
         pn_so_tam = st.number_input("Số tấm", min_value=1, value=4, step=1, key="pn_tam")
         
-        # Tính khổ rộng mét
         he_so_rong = 1.02 if "1020" in pn_kho_ton else 1.17
         pn_tong_m = pn_dai * pn_so_tam
         pn_tong_m2 = pn_tong_m * he_so_rong
@@ -468,9 +467,10 @@ elif lua_chon == "➕ Nhập lỗi Panel":
         pn_ly_do_chi_tiet = st.text_area("Ghi chú chi tiết", key="pn_note") if pn_ly_do_chon == "Lỗi khác" else ""
 
     if st.button("Lưu tấm Panel lỗi vào kho"):
-        if not pn_don or not pn_hang:
-            st.warning("⚠️ Vui lòng điền đủ: Mã đơn và Hãng tôn!")
+        if not pn_hang:
+            st.warning("⚠️ Vui lòng điền Hãng tôn!")
         else:
+            ma_pn_luu = pn_don if pn_don else "Không có"
             pn_nguyen_nhan_luu = f"Lỗi khác: {pn_ly_do_chi_tiet.strip()}" if pn_ly_do_chon == "Lỗi khác" else pn_ly_do_chon
             with engine.connect() as conn:
                 conn.execute(text("""
@@ -479,7 +479,7 @@ elif lua_chon == "➕ Nhập lỗi Panel":
                                              current_sheets, total_meters, total_area_m2, reason, fault_by)
                 VALUES (:nl, :wh, :vt, :oc, :br, :co, :ct, :kt, :fo, :sl, :cs, :tm, :ta, :re, :fb)
                 """), {
-                    "nl": ngay_loi_pn, "wh": pn_kho, "vt": pn_vi_tri, "oc": pn_don, "br": pn_hang, "co": pn_mau,
+                    "nl": ngay_loi_pn, "wh": pn_kho, "vt": pn_vi_tri, "oc": ma_pn_luu, "br": pn_hang, "co": pn_mau,
                     "ct": pn_core, "kt": pn_kho_ton, "fo": pn_xop_quy_cach, "sl": pn_dai,
                     "cs": pn_so_tam, "tm": pn_tong_m, "ta": pn_tong_m2, "re": pn_nguyen_nhan_luu, "fb": pn_loi_ai
                 })

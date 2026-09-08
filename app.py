@@ -5,173 +5,182 @@ import bcrypt
 import datetime
 import unicodedata
 
-# --- KẾT NỐI DATABASE ĐÁM MÂY (NEON) ---
-if "db_url" in st.secrets:
-    DB_URL = st.secrets["db_url"]
-else:
-    DB_URL = "sqlite:///ton_inventory.db"
+st.set_page_config(page_title="Quản Lý Kho Tôn, Phụ Kiện & Panel", layout="wide")
 
-if DB_URL.startswith("postgres://"):
-    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+# --- 1. TỐI ƯU KẾT NỐI DATABASE (CACHE DÙNG LẠI, KHÔNG TẠO MỚI LIÊN TỤC) ---
+@st.cache_resource
+def get_db_engine():
+    if "db_url" in st.secrets:
+        db_url = st.secrets["db_url"]
+    else:
+        db_url = "sqlite:///ton_inventory.db"
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    return create_engine(
+        db_url, 
+        pool_pre_ping=True, 
+        pool_size=10, 
+        max_overflow=20,
+        pool_recycle=300
+    )
 
-engine = create_engine(DB_URL, pool_pre_ping=True)
+engine = get_db_engine()
 
-# Khởi tạo và đồng bộ các bảng trên cơ sở dữ liệu
-with engine.connect() as conn:
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        full_name VARCHAR(100),
-        role VARCHAR(20) DEFAULT 'operator',
-        is_approved INTEGER DEFAULT 0,
-        created_at DATE DEFAULT CURRENT_DATE
-    );
-    """))
-    
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS inventory (
-        id SERIAL PRIMARY KEY,
-        ngay_loi DATE DEFAULT CURRENT_DATE,
-        source_warehouse VARCHAR(50) NOT NULL,
-        vi_tri_de VARCHAR(50),
-        order_code VARCHAR(50),
-        brand VARCHAR(50),
-        thickness REAL,
-        color VARCHAR(50),
-        corrugation_type VARCHAR(20),
-        ton_type VARCHAR(20),
-        foam_type VARCHAR(50),
-        sheet_length REAL,
-        current_sheets INTEGER,
-        total_meters REAL,
-        remaining_meters REAL,
-        is_matched VARCHAR(50) DEFAULT 'Chưa ghép',
-        reason TEXT,
-        fault_by VARCHAR(100),
-        matched_order_code VARCHAR(50),
-        matched_by_user VARCHAR(100),
-        matched_length REAL,
-        matched_sheets INTEGER,
-        created_at DATE DEFAULT CURRENT_DATE
-    );
-    """))
-    
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS matching_history (
-        id SERIAL PRIMARY KEY,
-        inventory_id INTEGER,
-        new_order_code VARCHAR(50),
-        matched_sheets INTEGER,
-        matched_length REAL,
-        matched_meters REAL,
-        matched_by VARCHAR(100),
-        matched_date DATE DEFAULT CURRENT_DATE
-    );
-    """))
-
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS accessory_inventory (
-        id SERIAL PRIMARY KEY,
-        ngay_loi DATE DEFAULT CURRENT_DATE,
-        source_warehouse VARCHAR(50) NOT NULL,
-        customer_name VARCHAR(150),
-        vi_tri_de VARCHAR(50),
-        order_code VARCHAR(50),
-        accessory_type VARCHAR(50) NOT NULL,
-        brand VARCHAR(100),
-        kho_phu_kien VARCHAR(50),
-        thickness REAL,
-        color VARCHAR(50),
-        sheet_length REAL,
-        current_sheets INTEGER,
-        total_meters REAL,
-        trang_thai VARCHAR(50) DEFAULT 'Chưa xử lý',
-        don_da_ghep VARCHAR(50),
-        nguoi_ghep VARCHAR(100),
-        ngay_ghep DATE,
-        reason TEXT,
-        fault_by VARCHAR(100),
-        created_at DATE DEFAULT CURRENT_DATE
-    );
-    """))
-
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS accessory_matching_history (
-        id SERIAL PRIMARY KEY,
-        accessory_id INTEGER,
-        new_order_code VARCHAR(50),
-        matched_sheets INTEGER,
-        matched_meters REAL,
-        matched_by VARCHAR(100),
-        matched_date DATE DEFAULT CURRENT_DATE
-    );
-    """))
-
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS panel_inventory (
-        id SERIAL PRIMARY KEY,
-        ngay_loi DATE DEFAULT CURRENT_DATE,
-        source_warehouse VARCHAR(50) NOT NULL,
-        vi_tri_de VARCHAR(50),
-        order_code VARCHAR(50),
-        brand VARCHAR(50),
-        color VARCHAR(50),
-        core_thickness VARCHAR(50),
-        kho_ton VARCHAR(50),
-        foam_type VARCHAR(50),
-        sheet_length REAL,
-        current_sheets INTEGER,
-        total_meters REAL,
-        total_area_m2 REAL,
-        remaining_meters REAL,
-        is_matched VARCHAR(50) DEFAULT 'Chưa ghép',
-        reason TEXT,
-        fault_by VARCHAR(100),
-        matched_order_code VARCHAR(50),
-        matched_by_user VARCHAR(100),
-        matched_length REAL,
-        matched_sheets INTEGER,
-        created_at DATE DEFAULT CURRENT_DATE
-    );
-    """))
-
-    conn.execute(text("""
-    CREATE TABLE IF NOT EXISTS panel_matching_history (
-        id SERIAL PRIMARY KEY,
-        panel_id INTEGER,
-        new_order_code VARCHAR(50),
-        matched_sheets INTEGER,
-        matched_meters REAL,
-        matched_m2 REAL,
-        matched_by VARCHAR(100),
-        matched_date DATE DEFAULT CURRENT_DATE
-    );
-    """))
-
-    try:
-        conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150);"))
-        conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS kho_phu_kien VARCHAR(50);"))
-        conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS nguoi_ghep VARCHAR(100);"))
-        conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS ngay_ghep DATE;"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS remaining_meters REAL;"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS is_matched VARCHAR(50) DEFAULT 'Chưa ghép';"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_order_code VARCHAR(50);"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_by_user VARCHAR(100);"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_length REAL;"))
-        conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_sheets INTEGER;"))
-    except Exception:
-        pass
-    
-    check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
-    if check_admin == 0:
-        pw_hash = bcrypt.hashpw("123456".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+# --- 2. KHỞI TẠO BẢNG 1 LẦN DUY NHẤT (TRÁNH CHẠY LẠI MỖI KHI BẤM PHÍM) ---
+@st.cache_resource
+def init_database_tables():
+    with engine.connect() as conn:
         conn.execute(text("""
-        INSERT INTO users (username, password_hash, full_name, role, is_approved)
-        VALUES ('admin', :pw, 'Quản Trị Viên', 'admin', 1)
-        """), {"pw": pw_hash})
-    conn.commit()
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(50) UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name VARCHAR(100),
+            role VARCHAR(20) DEFAULT 'operator',
+            is_approved INTEGER DEFAULT 0,
+            created_at DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS inventory (
+            id SERIAL PRIMARY KEY,
+            ngay_loi DATE DEFAULT CURRENT_DATE,
+            source_warehouse VARCHAR(50) NOT NULL,
+            vi_tri_de VARCHAR(50),
+            order_code VARCHAR(50),
+            brand VARCHAR(50),
+            thickness REAL,
+            color VARCHAR(50),
+            corrugation_type VARCHAR(20),
+            ton_type VARCHAR(20),
+            foam_type VARCHAR(50),
+            sheet_length REAL,
+            current_sheets INTEGER,
+            total_meters REAL,
+            remaining_meters REAL,
+            is_matched VARCHAR(50) DEFAULT 'Chưa ghép',
+            reason TEXT,
+            fault_by VARCHAR(100),
+            matched_order_code VARCHAR(50),
+            matched_by_user VARCHAR(100),
+            matched_length REAL,
+            matched_sheets INTEGER,
+            created_at DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS matching_history (
+            id SERIAL PRIMARY KEY,
+            inventory_id INTEGER,
+            new_order_code VARCHAR(50),
+            matched_sheets INTEGER,
+            matched_length REAL,
+            matched_meters REAL,
+            matched_by VARCHAR(100),
+            matched_date DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS accessory_inventory (
+            id SERIAL PRIMARY KEY,
+            ngay_loi DATE DEFAULT CURRENT_DATE,
+            source_warehouse VARCHAR(50) NOT NULL,
+            customer_name VARCHAR(150),
+            vi_tri_de VARCHAR(50),
+            order_code VARCHAR(50),
+            accessory_type VARCHAR(50) NOT NULL,
+            brand VARCHAR(100),
+            kho_phu_kien VARCHAR(50),
+            thickness REAL,
+            color VARCHAR(50),
+            sheet_length REAL,
+            current_sheets INTEGER,
+            total_meters REAL,
+            trang_thai VARCHAR(50) DEFAULT 'Chưa xử lý',
+            don_da_ghep VARCHAR(50),
+            nguoi_ghep VARCHAR(100),
+            ngay_ghep DATE,
+            reason TEXT,
+            fault_by VARCHAR(100),
+            created_at DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS accessory_matching_history (
+            id SERIAL PRIMARY KEY,
+            accessory_id INTEGER,
+            new_order_code VARCHAR(50),
+            matched_sheets INTEGER,
+            matched_meters REAL,
+            matched_by VARCHAR(100),
+            matched_date DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS panel_inventory (
+            id SERIAL PRIMARY KEY,
+            ngay_loi DATE DEFAULT CURRENT_DATE,
+            source_warehouse VARCHAR(50) NOT NULL,
+            vi_tri_de VARCHAR(50),
+            order_code VARCHAR(50),
+            brand VARCHAR(50),
+            color VARCHAR(50),
+            core_thickness VARCHAR(50),
+            kho_ton VARCHAR(50),
+            foam_type VARCHAR(50),
+            sheet_length REAL,
+            current_sheets INTEGER,
+            total_meters REAL,
+            total_area_m2 REAL,
+            remaining_meters REAL,
+            is_matched VARCHAR(50) DEFAULT 'Chưa ghép',
+            reason TEXT,
+            fault_by VARCHAR(100),
+            matched_order_code VARCHAR(50),
+            matched_by_user VARCHAR(100),
+            matched_length REAL,
+            matched_sheets INTEGER,
+            created_at DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS panel_matching_history (
+            id SERIAL PRIMARY KEY,
+            panel_id INTEGER,
+            new_order_code VARCHAR(50),
+            matched_sheets INTEGER,
+            matched_meters REAL,
+            matched_m2 REAL,
+            matched_by VARCHAR(100),
+            matched_date DATE DEFAULT CURRENT_DATE
+        );
+        """))
+        
+        try:
+            conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150);"))
+            conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS kho_phu_kien VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS nguoi_ghep VARCHAR(100);"))
+            conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS ngay_ghep DATE;"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS remaining_meters REAL;"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS is_matched VARCHAR(50) DEFAULT 'Chưa ghép';"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_order_code VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_by_user VARCHAR(100);"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_length REAL;"))
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS matched_sheets INTEGER;"))
+        except Exception:
+            pass
+
+        check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
+        if check_admin == 0:
+            pw_hash = bcrypt.hashpw("123456".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            conn.execute(text("""
+            INSERT INTO users (username, password_hash, full_name, role, is_approved)
+            VALUES ('admin', :pw, 'Quản Trị Viên', 'admin', 1)
+            """), {"pw": pw_hash})
+        conn.commit()
+    return True
+
+init_database_tables()
 
 # Hàm chuẩn hóa xóa dấu tiếng Việt
 def xoa_dau_tieng_viet(text_input):
@@ -181,7 +190,68 @@ def xoa_dau_tieng_viet(text_input):
     nfkd_form = unicodedata.normalize('NFKD', text_input)
     return "".join([c for c in nfkd_form if not unicodedata.combining(c)]).lower().strip()
 
-st.set_page_config(page_title="Quản Lý Kho Tôn, Phụ Kiện & Panel", layout="wide")
+# --- 3. BỘ HÀM LOAD DỮ LIỆU CÓ CACHE (TẢI TRANG SIÊU TỐC) ---
+@st.cache_data(ttl=3)
+def load_ton_data():
+    with engine.connect() as conn:
+        return pd.read_sql(text("""
+            SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
+                   order_code as "Mã đơn", brand as "Hãng", thickness as "Dày (mm)", color as "Màu", 
+                   corrugation_type as "Sóng", ton_type as "Loại tôn", foam_type as "Quy cách xốp/ngói", 
+                   sheet_length as "Dài (m)", current_sheets as "Số tấm còn", 
+                   COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
+                   COALESCE(is_matched, 'Chưa ghép') as "Hàng đã xử lý ghép",
+                   reason as "Nguyên nhân", 
+                   fault_by as "Lỗi do ai",
+                   COALESCE(matched_order_code, '') as "Đơn hàng ghép",
+                   COALESCE(matched_by_user, '') as "Ai là người ghép",
+                   COALESCE(matched_length, 0.0) as "Ghép sang kích thước (m)",
+                   COALESCE(matched_sheets, 0) as "Số lượng tấm ghép"
+            FROM inventory 
+            ORDER BY id DESC
+        """), conn)
+
+@st.cache_data(ttl=3)
+def load_pk_data():
+    with engine.connect() as conn:
+        return pd.read_sql(text("""
+            SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", 
+                   COALESCE(customer_name, '') as "Khách Hàng/Đại Lý",
+                   vi_tri_de as "Vị trí", order_code as "Mã đơn", 
+                   accessory_type as "Loại phụ kiện", brand as "Tên phụ kiện", 
+                   COALESCE(kho_phu_kien, '') as "Khổ PK",
+                   thickness as "Dày (mm)", color as "Màu", 
+                   sheet_length as "Dài 1 tấm (m)", current_sheets as "Số tấm còn", 
+                   total_meters as "Tổng mét", 
+                   trang_thai as "Trạng thái", 
+                   COALESCE(don_da_ghep, '') as "Đơn đã ghép",
+                   COALESCE(nguoi_ghep, '') as "Người ghép",
+                   COALESCE(CAST(ngay_ghep AS TEXT), '') as "Ngày ghép",
+                   reason as "Nguyên nhân", fault_by as "Lỗi do ai" 
+            FROM accessory_inventory 
+            ORDER BY id DESC
+        """), conn)
+
+@st.cache_data(ttl=3)
+def load_panel_data():
+    with engine.connect() as conn:
+        return pd.read_sql(text("""
+            SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
+                   order_code as "Mã đơn", brand as "Hãng tôn", color as "Màu", 
+                       core_thickness as "Độ dày Panel", kho_ton as "Khổ tôn", foam_type as "Quy cách xốp", 
+                   sheet_length as "Dài 1 tấm (m)", current_sheets as "Số tấm còn", 
+                   COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
+                   total_area_m2 as "Tổng m2",
+                   COALESCE(is_matched, 'Chưa ghép') as "Hàng đã xử lý ghép",
+                   reason as "Nguyên nhân", 
+                   fault_by as "Lỗi do ai",
+                   COALESCE(matched_order_code, '') as "Đơn hàng ghép",
+                   COALESCE(matched_by_user, '') as "Ai là người ghép",
+                   COALESCE(matched_length, 0.0) as "Ghép sang kích thước (m)",
+                   COALESCE(matched_sheets, 0) as "Số lượng tấm ghép"
+            FROM panel_inventory 
+            ORDER BY id DESC
+        """), conn)
 
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -295,7 +365,7 @@ DANH_SACH_KHO_PANEL = ["Khổ nhỏ 1020mm", "Khổ to 1170mm"]
 DANH_SACH_XOP_PANEL = ["Xốp thường", "Xốp chống cháy"]
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO
+# 1. TRA CỨU TỒN KHO (TỐI ƯU TẢI NHẸ VÀ MƯỢT)
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     tab_ton, tab_pk, tab_pn = st.tabs(["📦 Tồn kho Tôn lỗi", "🛠️ Tồn kho Phụ kiện", "🧱 Tồn kho Panel"])
@@ -303,25 +373,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
     # 1.1 TỒN KHO TÔN LỖI
     with tab_ton:
         st.subheader("📋 Danh mục Tôn lỗi tồn kho")
-        st.caption("💡 *Click đúp chuột để sửa trực tiếp bất kỳ ô nào nhập sai rồi bấm **Lưu thay đổi**.*")
-        
-        with engine.connect() as conn:
-            df_ton = pd.read_sql(text("""
-                SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
-                       order_code as "Mã đơn", brand as "Hãng", thickness as "Dày (mm)", color as "Màu", 
-                       corrugation_type as "Sóng", ton_type as "Loại tôn", foam_type as "Quy cách xốp/ngói", 
-                       sheet_length as "Dài (m)", current_sheets as "Số tấm còn", 
-                       COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
-                       COALESCE(is_matched, 'Chưa ghép') as "Hàng đã xử lý ghép",
-                       reason as "Nguyên nhân", 
-                       fault_by as "Lỗi do ai",
-                       COALESCE(matched_order_code, '') as "Đơn hàng ghép",
-                       COALESCE(matched_by_user, '') as "Ai là người ghép",
-                       COALESCE(matched_length, 0.0) as "Ghép sang kích thước (m)",
-                       COALESCE(matched_sheets, 0) as "Số lượng tấm ghép"
-                FROM inventory 
-                ORDER BY id DESC
-            """), conn)
+        df_ton = load_ton_data()
 
         edited_ton = st.data_editor(
             df_ton,
@@ -380,47 +432,30 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             "id": r["id"]
                         })
                     conn.commit()
-                st.success("✅ Đã cập nhật toàn bộ thay đổi kho Tôn!")
+                st.cache_data.clear()
+                st.success("✅ Đã cập nhật thành công!")
                 st.rerun()
 
         if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_ton.empty:
-            with st.expander("🗑️ Xóa dòng Tôn bị nhập sai hoàn toàn"):
+            with st.expander("🗑️ Xóa dòng Tôn bị nhập sai"):
                 c_del1, c_del2 = st.columns([3, 2])
                 with c_del1:
-                    id_del_ton = st.selectbox("Chọn ID dòng cần xóa vĩnh viễn:", df_ton['id'].tolist(), key="del_ton_sel")
+                    id_del_ton = st.selectbox("Chọn ID cần xóa:", df_ton['id'].tolist(), key="del_ton_sel")
                 with c_del2:
                     st.write("")
                     st.write("")
-                    if st.button("❌ Xóa dòng Tôn này", key="btn_del_ton"):
+                    if st.button("❌ Xóa dòng này", key="btn_del_ton"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM inventory WHERE id = :id"), {"id": id_del_ton})
                             conn.commit()
+                        st.cache_data.clear()
                         st.success(f"Đã xóa dòng ID {id_del_ton}!")
                         st.rerun()
 
     # 1.2 TỒN KHO PHỤ KIỆN
     with tab_pk:
         st.subheader("🛠️ Danh mục Phụ kiện (Máng, Sườn, Xối, Nóc)")
-        st.caption("💡 *Click đúp chuột để sửa trực tiếp bất kỳ ô nào nhập sai rồi bấm **Lưu thay đổi**.*")
-        
-        with engine.connect() as conn:
-            df_pk = pd.read_sql(text("""
-                SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", 
-                       COALESCE(customer_name, '') as "Khách Hàng/Đại Lý",
-                       vi_tri_de as "Vị trí", order_code as "Mã đơn", 
-                       accessory_type as "Loại phụ kiện", brand as "Tên phụ kiện", 
-                       COALESCE(kho_phu_kien, '') as "Khổ PK",
-                       thickness as "Dày (mm)", color as "Màu", 
-                       sheet_length as "Dài 1 tấm (m)", current_sheets as "Số tấm còn", 
-                       total_meters as "Tổng mét", 
-                       trang_thai as "Trạng thái", 
-                       COALESCE(don_da_ghep, '') as "Đơn đã ghép",
-                       COALESCE(nguoi_ghep, '') as "Người ghép",
-                       COALESCE(CAST(ngay_ghep AS TEXT), '') as "Ngày ghép",
-                       reason as "Nguyên nhân", fault_by as "Lỗi do ai" 
-                FROM accessory_inventory 
-                ORDER BY id DESC
-            """), conn)
+        df_pk = load_pk_data()
 
         edited_pk = st.data_editor(
             df_pk,
@@ -429,16 +464,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                 "Kho": st.column_config.SelectboxColumn("Kho", options=["Kho hàng lỗi NM", "Kho hàng lỗi trả về"]),
                 "Loại phụ kiện": st.column_config.SelectboxColumn("Loại phụ kiện", options=DANH_SACH_PHU_KIEN),
                 "Vị trí": st.column_config.SelectboxColumn("Vị trí", options=DANH_SACH_VI_TRI),
-                "Trạng thái": st.column_config.SelectboxColumn("Trạng thái", options=["Chưa xử lý", "Đã xử lý"]),
-                "Tên phụ kiện": st.column_config.TextColumn("Tên phụ kiện"),
-                "Khách Hàng/Đại Lý": st.column_config.TextColumn("Khách Hàng/Đại Lý"),
-                "Khổ PK": st.column_config.TextColumn("Khổ PK"),
-                "Màu": st.column_config.TextColumn("Màu"),
-                "Đơn đã ghép": st.column_config.TextColumn("Đơn đã ghép"),
-                "Người ghép": st.column_config.TextColumn("Người ghép"),
-                "Ngày ghép": st.column_config.TextColumn("Ngày ghép (YYYY-MM-DD)"),
-                "Nguyên nhân": st.column_config.TextColumn("Nguyên nhân"),
-                "Lỗi do ai": st.column_config.TextColumn("Lỗi do ai")
+                "Trạng thái": st.column_config.SelectboxColumn("Trạng thái", options=["Chưa xử lý", "Đã xử lý"])
             },
             width='stretch',
             key="editor_pk"
@@ -490,47 +516,30 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             "re": r["Nguyên nhân"], "fb": r["Lỗi do ai"], "id": r["id"]
                         })
                     conn.commit()
-                st.success("✅ Đã cập nhật toàn bộ thay đổi kho Phụ kiện!")
+                st.cache_data.clear()
+                st.success("✅ Đã cập nhật thành công!")
                 st.rerun()
 
         if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_pk.empty:
-            with st.expander("🗑️ Xóa dòng Phụ kiện bị nhập sai hoàn toàn"):
+            with st.expander("🗑️ Xóa dòng Phụ kiện bị nhập sai"):
                 c_del_pk1, c_del_pk2 = st.columns([3, 2])
                 with c_del_pk1:
-                    id_del_pk = st.selectbox("Chọn ID Phụ kiện cần xóa vĩnh viễn:", df_pk['id'].tolist(), key="del_pk_sel")
+                    id_del_pk = st.selectbox("Chọn ID Phụ kiện cần xóa:", df_pk['id'].tolist(), key="del_pk_sel")
                 with c_del_pk2:
                     st.write("")
                     st.write("")
-                    if st.button("❌ Xóa dòng Phụ kiện này", key="btn_del_pk"):
+                    if st.button("❌ Xóa dòng này", key="btn_del_pk"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM accessory_inventory WHERE id = :id"), {"id": id_del_pk})
                             conn.commit()
+                        st.cache_data.clear()
                         st.success(f"Đã xóa phụ kiện ID {id_del_pk}!")
                         st.rerun()
 
     # 1.3 TỒN KHO PANEL
     with tab_pn:
         st.subheader("🧱 Danh mục Panel lỗi tồn kho")
-        st.caption("💡 *Click đúp chuột để sửa trực tiếp bất kỳ ô nào nhập sai rồi bấm **Lưu thay đổi**.*")
-        
-        with engine.connect() as conn:
-            df_pn = pd.read_sql(text("""
-                SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
-                       order_code as "Mã đơn", brand as "Hãng tôn", color as "Màu", 
-                       core_thickness as "Độ dày Panel", kho_ton as "Khổ tôn", foam_type as "Quy cách xốp", 
-                       sheet_length as "Dài 1 tấm (m)", current_sheets as "Số tấm còn", 
-                       COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
-                       total_area_m2 as "Tổng m2",
-                       COALESCE(is_matched, 'Chưa ghép') as "Hàng đã xử lý ghép",
-                       reason as "Nguyên nhân", 
-                       fault_by as "Lỗi do ai",
-                       COALESCE(matched_order_code, '') as "Đơn hàng ghép",
-                       COALESCE(matched_by_user, '') as "Ai là người ghép",
-                       COALESCE(matched_length, 0.0) as "Ghép sang kích thước (m)",
-                       COALESCE(matched_sheets, 0) as "Số lượng tấm ghép"
-                FROM panel_inventory 
-                ORDER BY id DESC
-            """), conn)
+        df_pn = load_panel_data()
 
         edited_pn = st.data_editor(
             df_pn,
@@ -590,21 +599,23 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             "id": r["id"]
                         })
                     conn.commit()
-                st.success("✅ Đã cập nhật toàn bộ thay đổi kho Panel!")
+                st.cache_data.clear()
+                st.success("✅ Đã cập nhật thành công!")
                 st.rerun()
 
         if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_pn.empty:
-            with st.expander("🗑️ Xóa dòng Panel bị nhập sai hoàn toàn"):
+            with st.expander("🗑️ Xóa dòng Panel bị nhập sai"):
                 c_del_pn1, c_del_pn2 = st.columns([3, 2])
                 with c_del_pn1:
-                    id_del_pn = st.selectbox("Chọn ID Panel cần xóa vĩnh viễn:", df_pn['id'].tolist(), key="del_pn_sel")
+                    id_del_pn = st.selectbox("Chọn ID Panel cần xóa:", df_pn['id'].tolist(), key="del_pn_sel")
                 with c_del_pn2:
                     st.write("")
                     st.write("")
-                    if st.button("❌ Xóa dòng Panel này", key="btn_del_pn"):
+                    if st.button("❌ Xóa dòng này", key="btn_del_pn"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM panel_inventory WHERE id = :id"), {"id": id_del_pn})
                             conn.commit()
+                        st.cache_data.clear()
                         st.success(f"Đã xóa Panel ID {id_del_pn}!")
                         st.rerun()
 
@@ -653,6 +664,7 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
                     "tm": tong_m_ton, "rm": tong_m_ton, "re": nguyen_nhan_luu, "fb": loi_ai
                 })
                 conn.commit()
+            st.cache_data.clear()
             st.success("✅ Đã nhập thành công lô Tôn vào kho!")
             st.rerun()
 
@@ -735,7 +747,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                     "at": pk_loai, "br": pk_ten, "kpk": pk_kho_phukien, "th": pk_day, "co": pk_mau, "sl": pk_dai,
                     "cs": so_tam_con, "tm": so_met_con, "tt": trang_thai_pk, "dg": don_xu_ly if da_xu_ly else None,
                     "ng": nv_ghep_pk if da_xu_ly else None, "ngp": ngay_ghep_pk if da_xu_ly else None,
-                    "re": pk_nguyen_nhan_luu, "fb": loi_ai
+                    "re": pk_nguyen_nhan_luu, "fb": pk_loi_ai
                 })
                 new_pk_id = res_pk.scalar()
                 
@@ -747,6 +759,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                         "aid": new_pk_id, "od": don_xu_ly, "ms": pk_so_tam, "mm": pk_tong_met, "mb": nv_ghep_pk, "md": ngay_ghep_pk
                     })
                 conn.commit()
+            st.cache_data.clear()
             st.success(f"✅ Đã lưu phụ kiện vào hệ thống (Trạng thái: {trang_thai_pk})!")
             st.rerun()
 
@@ -800,11 +813,12 @@ elif lua_chon == "➕ Nhập lỗi Panel":
                     "re": pn_nguyen_nhan_luu, "fb": pn_loi_ai
                 })
                 conn.commit()
+            st.cache_data.clear()
             st.success(f"✅ Đã nhập thành công {pn_so_tam} tấm Panel ({pn_tong_m2:.2f} m²) vào kho!")
             st.rerun()
 
 # =============================================================
-# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN (ĐÃ TỐI ƯU BỘ LỌC CHUẨN XÁC 100%)
+# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN (CHẠY BẰNG PYTHON, MƯỢT VÀ CHÍNH XÁC)
 # =============================================================
 elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
     tab_ghep_ton, tab_ghep_pk, tab_ghep_pn = st.tabs(["✂️ Ghép Tôn tấm", "🛠️ Xuất / Ghép Phụ kiện", "🧱 Xuất / Ghép Panel"])
@@ -833,42 +847,25 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
             st.session_state.ton_searched = True
         
         if st.session_state.get("ton_searched", False):
-            with engine.connect() as conn:
-                # Đọc toàn bộ danh mục tôn còn hàng để lọc bằng Python (tránh lỗi lệch số thực 0.35 trong Postgres)
-                df_all_ton = pd.read_sql(text("""
-                    SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", order_code as "Mã đơn", 
-                           brand as "Hãng", thickness as "Dày (mm)", color as "Màu", corrugation_type as "Sóng", 
-                           ton_type as "Loại tôn", foam_type as "Xốp/Ngói", sheet_length as "Dài (m)", 
-                           current_sheets as "Số tấm còn", COALESCE(remaining_meters, total_meters) as "Mét còn lại"
-                    FROM inventory 
-                    WHERE current_sheets > 0
-                """), conn)
+            df_all_ton = load_ton_data()
+            df_all_ton = df_all_ton[df_all_ton["Số tấm còn"] > 0]
 
             if not df_all_ton.empty:
-                # 1. Lọc theo độ dài
                 df_matched = df_all_ton[df_all_ton["Dài (m)"] >= s_dai].copy()
-
-                # 2. Lọc theo độ dày (dùng round 2 chữ số tránh lỗi số thực float nhị phân)
                 df_matched = df_matched[df_matched["Dày (mm)"].round(2) >= round(s_day, 2)]
 
-                # 3. Lọc theo hãng
                 if s_hang:
                     df_matched = df_matched[df_matched["Hãng"].apply(lambda x: xoa_dau_tieng_viet(s_hang) in xoa_dau_tieng_viet(x))]
-
-                # 4. Lọc theo màu
                 if s_mau:
                     df_matched = df_matched[df_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(s_mau) in xoa_dau_tieng_viet(x))]
-
-                # 5. Lọc theo sóng & loại tôn
                 if s_song != "Tất cả":
                     df_matched = df_matched[df_matched["Sóng"] == s_song]
                 if s_ton != "Tất cả":
                     df_matched = df_matched[df_matched["Loại tôn"] == s_ton]
 
-                # 6. Lọc theo cấp xốp
                 if not df_matched.empty:
                     req_rank = XOP_RANKS.get(s_xop, 0)
-                    df_matched['rank'] = df_matched['Xốp/Ngói'].map(lambda x: XOP_RANKS.get(x, 0))
+                    df_matched['rank'] = df_matched['Quy cách xốp/ngói'].map(lambda x: XOP_RANKS.get(x, 0))
                     df_final = df_matched[df_matched['rank'] >= req_rank].copy()
 
                     if not df_final.empty:
@@ -928,6 +925,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                             "iid": id_ghep, "od": ma_moi, "ms": tam_ghep, "ml": s_dai, "mm": met_ghep, "mb": nguoi_ghep
                                         })
                                         conn.commit()
+                                    st.cache_data.clear()
                                     st.success(f"✅ Đã trừ kho thành công! Vị trí {r_target['Vị trí']} còn lại {tam_con} tấm ({met_con:.2f} m).")
                                     st.session_state.ton_searched = False
                                     st.rerun()
@@ -958,25 +956,15 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
             st.session_state.pk_searched = True
 
         if st.session_state.get("pk_searched", False):
-            with engine.connect() as conn:
-                df_pk_all = pd.read_sql(text("""
-                    SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", 
-                           COALESCE(customer_name, '-') as "Khách hàng",
-                           vi_tri_de as "Vị trí", order_code as "Mã đơn", 
-                           accessory_type as "Loại PK", brand as "Tên phụ kiện", 
-                           COALESCE(kho_phu_kien, '-') as "Khổ PK",
-                           thickness as "Dày (mm)", color as "Màu", sheet_length as "Dài (m)", 
-                           current_sheets as "Số tấm còn", total_meters as "Tổng mét"
-                    FROM accessory_inventory
-                    WHERE current_sheets > 0 AND (trang_thai = 'Chưa xử lý' OR trang_thai IS NULL)
-                """), conn)
+            df_pk_all = load_pk_data()
+            df_pk_all = df_pk_all[(df_pk_all["Số tấm còn"] > 0) & (df_pk_all["Trạng thái"] != "Đã xử lý")]
 
             if not df_pk_all.empty:
-                df_pk_matched = df_pk_all[df_pk_all["Dài (m)"] >= q_pk_dai].copy()
+                df_pk_matched = df_pk_all[df_pk_all["Dài 1 tấm (m)"] >= q_pk_dai].copy()
                 df_pk_matched = df_pk_matched[df_pk_matched["Dày (mm)"].round(2) >= round(q_pk_day, 2)]
 
                 if q_pk_loai != "Tất cả":
-                    df_pk_matched = df_pk_matched[df_pk_matched["Loại PK"] == q_pk_loai]
+                    df_pk_matched = df_pk_matched[df_pk_matched["Loại phụ kiện"] == q_pk_loai]
                 if q_pk_ten:
                     df_pk_matched = df_pk_matched[df_pk_matched["Tên phụ kiện"].apply(lambda x: xoa_dau_tieng_viet(q_pk_ten) in xoa_dau_tieng_viet(x))]
                 if q_pk_mau:
@@ -996,7 +984,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                             pk_don_moi = st.text_input("Mã đơn mới ghép vào *", key="pk_don_moi").strip()
                         with g_pk2:
                             pk_tam_lay = st.number_input("Số tấm cần lấy", min_value=1, max_value=int(r_pk['Số tấm còn']), value=1, key="pk_tam_lay")
-                            pk_m_lay = pk_tam_lay * float(r_pk['Dài (m)'])
+                            pk_m_lay = pk_tam_lay * float(r_pk['Dài 1 tấm (m)'])
                             st.info(f"Tổng mét phụ kiện: **{pk_m_lay:.2f} m**")
                         with g_pk3:
                             pk_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pk_nv_lay")
@@ -1007,7 +995,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                 st.error("Vui lòng điền mã đơn ghép!")
                             else:
                                 pk_tam_con = int(r_pk['Số tấm còn']) - pk_tam_lay
-                                pk_m_con = pk_tam_con * float(r_pk['Dài (m)'])
+                                pk_m_con = pk_tam_con * float(r_pk['Dài 1 tấm (m)'])
                                 trang_thai_moi = "Đã xử lý" if pk_tam_con == 0 else "Chưa xử lý"
                                 
                                 with engine.connect() as conn:
@@ -1027,7 +1015,8 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                         "aid": pk_id_chon, "od": pk_don_moi, "ms": pk_tam_lay, "mm": pk_m_lay, "mb": pk_nguoi_lay, "md": pk_ngay_lay
                                     })
                                     conn.commit()
-                                st.success(f"✅ Đã trừ thành công {pk_tam_lay} tấm {r_pk['Loại PK']}! Còn lại {pk_tam_con} tấm.")
+                                st.cache_data.clear()
+                                st.success(f"✅ Đã trừ thành công {pk_tam_lay} tấm {r_pk['Loại phụ kiện']}! Còn lại {pk_tam_con} tấm.")
                                 st.session_state.pk_searched = False
                                 st.rerun()
                 else:
@@ -1055,18 +1044,11 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
             st.session_state.pn_searched = True
 
         if st.session_state.get("pn_searched", False):
-            with engine.connect() as conn:
-                df_pn_all = pd.read_sql(text("""
-                    SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
-                       order_code as "Mã đơn", brand as "Hãng tôn", color as "Màu", 
-                       core_thickness as "Độ dày Panel", kho_ton as "Khổ tôn", foam_type as "Quy cách xốp", 
-                       sheet_length as "Dài (m)", current_sheets as "Số tấm còn", total_area_m2 as "Tổng m2"
-                    FROM panel_inventory
-                    WHERE current_sheets > 0
-                """), conn)
+            df_pn_all = load_panel_data()
+            df_pn_all = df_pn_all[df_pn_all["Số tấm còn"] > 0]
 
             if not df_pn_all.empty:
-                df_pn_matched = df_pn_all[df_pn_all["Dài (m)"] >= q_pn_dai].copy()
+                df_pn_matched = df_pn_all[df_pn_all["Dài 1 tấm (m)"] >= q_pn_dai].copy()
                 if q_pn_hang:
                     df_pn_matched = df_pn_matched[df_pn_matched["Hãng tôn"].apply(lambda x: xoa_dau_tieng_viet(q_pn_hang) in xoa_dau_tieng_viet(x))]
                 if q_pn_mau:
@@ -1090,7 +1072,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                             pn_don_moi = st.text_input("Mã đơn hàng ghép vào *", key="pn_don_moi").strip()
                         with g_pn2:
                             pn_tam_lay = st.number_input("Số tấm cần lấy", min_value=1, max_value=int(r_pn['Số tấm còn']), value=1, key="pn_tam_lay")
-                            pn_m_lay = pn_tam_lay * float(r_pn['Dài (m)'])
+                            pn_m_lay = pn_tam_lay * float(r_pn['Dài 1 tấm (m)'])
                             he_so = 1.02 if "1020" in r_pn['Khổ tôn'] else 1.17
                             pn_m2_lay = pn_m_lay * he_so
                             st.info(f"Xuất: **{pn_m_lay:.2f} m** | Diện tích: **{pn_m2_lay:.2f} m²**")
@@ -1102,7 +1084,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                 st.error("Vui lòng điền mã đơn hàng ghép vào!")
                             else:
                                 pn_tam_con = int(r_pn['Số tấm còn']) - pn_tam_lay
-                                pn_m_con = pn_tam_con * float(r_pn['Dài (m)'])
+                                pn_m_con = pn_tam_con * float(r_pn['Dài 1 tấm (m)'])
                                 pn_m2_con = pn_m_con * he_so
                                 with engine.connect() as conn:
                                     conn.execute(text("UPDATE panel_inventory SET current_sheets = :tc, total_meters = :mc, total_area_m2 = :m2c WHERE id = :id"),
@@ -1110,6 +1092,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                     conn.execute(text("INSERT INTO panel_matching_history (panel_id, new_order_code, matched_sheets, matched_meters, matched_m2, matched_by) VALUES (:pid, :od, :ms, :mm, :m2, :mb)"),
                                                  {"pid": pn_id_chon, "od": pn_don_moi, "ms": pn_tam_lay, "mm": pn_m_lay, "m2": pn_m2_lay, "mb": pn_nguoi_lay})
                                     conn.commit()
+                                st.cache_data.clear()
                                 st.success(f"✅ Đã trừ thành công {pn_tam_lay} tấm Panel! Còn lại {pn_tam_con} tấm ({pn_m2_con:.2f} m²).")
                                 st.session_state.pn_searched = False
                                 st.rerun()

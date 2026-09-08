@@ -47,14 +47,14 @@ with engine.connect() as conn:
         sheet_length REAL,
         current_sheets INTEGER,
         total_meters REAL,
+        remaining_meters REAL,
         is_matched VARCHAR(50) DEFAULT 'Chưa ghép',
+        reason TEXT,
+        fault_by VARCHAR(100),
         matched_order_code VARCHAR(50),
         matched_by_user VARCHAR(100),
         matched_length REAL,
         matched_sheets INTEGER,
-        remaining_meters REAL,
-        reason TEXT,
-        fault_by VARCHAR(100),
         created_at DATE DEFAULT CURRENT_DATE
     );
     """))
@@ -289,14 +289,17 @@ DANH_SACH_KHO_PANEL = ["Khổ nhỏ 1020mm", "Khổ to 1170mm"]
 DANH_SACH_XOP_PANEL = ["Xốp thường", "Xốp chống cháy"]
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO
+# 1. TRA CỨU TỒN KHO (ĐÃ DỊCH CỘT & CHO PHÉP NHẬP TAY TRỰC TIẾP)
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     tab_ton, tab_pk, tab_pn = st.tabs(["📦 Tồn kho Tôn lỗi", "🛠️ Tồn kho Phụ kiện", "🧱 Tồn kho Panel"])
     
     with tab_ton:
         st.subheader("📋 Danh mục Tôn lỗi tồn kho")
+        st.caption("💡 *Bạn có thể click đúp chuột trực tiếp vào ô **'Đơn hàng ghép'**, **'Ai là người ghép'**, hoặc chỉnh sửa số liệu ngay trên bảng rồi bấm nút Lưu bên dưới.*")
+        
         with engine.connect() as conn:
+            # Câu query đã dịch thứ tự cột: Nguyên nhân & Lỗi do ai lên trước
             df_ton = pd.read_sql(text("""
                 SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
                        order_code as "Mã đơn", brand as "Hãng", thickness as "Dày (mm)", color as "Màu", 
@@ -304,15 +307,63 @@ if lua_chon == "📋 Tra cứu tồn kho":
                        sheet_length as "Dài (m)", current_sheets as "Số tấm còn", 
                        COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
                        COALESCE(is_matched, 'Chưa ghép') as "Hàng đã xử lý ghép",
-                       COALESCE(matched_order_code, '-') as "Đơn hàng ghép",
-                       COALESCE(matched_by_user, '-') as "Ai là người ghép",
-                       COALESCE(matched_length, 0) as "Ghép sang kích thước (m)",
-                       COALESCE(matched_sheets, 0) as "Số lượng tấm ghép",
-                       reason as "Nguyên nhân", fault_by as "Lỗi do ai" 
+                       reason as "Nguyên nhân", 
+                       fault_by as "Lỗi do ai",
+                       COALESCE(matched_order_code, '') as "Đơn hàng ghép",
+                       COALESCE(matched_by_user, '') as "Ai là người ghép",
+                       COALESCE(matched_length, 0.0) as "Ghép sang kích thước (m)",
+                       COALESCE(matched_sheets, 0) as "Số lượng tấm ghép"
                 FROM inventory 
                 ORDER BY id DESC
             """), conn)
-        st.dataframe(df_ton, width='stretch')
+
+        # Bảng cho phép gõ chữ tay trực tiếp
+        edited_ton = st.data_editor(
+            df_ton,
+            disabled=["id", "Ngày lỗi", "Kho", "Vị trí", "Mã đơn", "Hãng", "Dày (mm)", "Màu", "Sóng", "Loại tôn", "Quy cách xốp/ngói", "Dài (m)"],
+            column_config={
+                "Hàng đã xử lý ghép": st.column_config.SelectboxColumn("Hàng đã xử lý ghép", options=["Chưa ghép", "Đã ghép một phần", "Đã ghép xong"]),
+                "Đơn hàng ghép": st.column_config.TextColumn("Đơn hàng ghép", max_chars=50),
+                "Ai là người ghép": st.column_config.TextColumn("Ai là người ghép", max_chars=100),
+                "Nguyên nhân": st.column_config.TextColumn("Nguyên nhân"),
+                "Lỗi do ai": st.column_config.TextColumn("Lỗi do ai")
+            },
+            width='stretch',
+            key="editor_ton"
+        )
+
+        col_save1, col_save2 = st.columns([2, 8])
+        with col_save1:
+            if st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary"):
+                with engine.connect() as conn:
+                    for idx, r in edited_ton.iterrows():
+                        conn.execute(text("""
+                            UPDATE inventory 
+                            SET current_sheets = :cs,
+                                remaining_meters = :rm,
+                                is_matched = :im,
+                                reason = :re,
+                                fault_by = :fb,
+                                matched_order_code = :moc,
+                                matched_by_user = :mbu,
+                                matched_length = :ml,
+                                matched_sheets = :ms
+                            WHERE id = :id
+                        """), {
+                            "cs": r["Số tấm còn"],
+                            "rm": r["Còn lại mét tồn kho"],
+                            "im": r["Hàng đã xử lý ghép"],
+                            "re": r["Nguyên nhân"],
+                            "fb": r["Lỗi do ai"],
+                            "moc": r["Đơn hàng ghép"],
+                            "mbu": r["Ai là người ghép"],
+                            "ml": r["Ghép sang kích thước (m)"],
+                            "ms": r["Số lượng tấm ghép"],
+                            "id": r["id"]
+                        })
+                    conn.commit()
+                st.success("✅ Đã cập nhật toàn bộ thay đổi vào cơ sở dữ liệu!")
+                st.rerun()
 
     with tab_pk:
         st.subheader("🛠️ Danh mục Phụ kiện (Máng, Sườn, Xối, Nóc)")
@@ -400,17 +451,14 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
             st.rerun()
 
 # =============================================================
-# 3. ➕ NHẬP LỖI PHỤ KIỆN (CẬP NHẬT THEO ĐÚNG NOTE ẢNH)
+# 3. ➕ NHẬP LỖI PHỤ KIỆN
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Phụ kiện":
     st.title("➕ Nhập hàng lỗi cho Phụ kiện (Máng, Sườn, Xối, Nóc)")
-    
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
         ngay_loi_pk = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pk_ngay")
         pk_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pk_kho")
-        
-        # Nếu chọn Kho hàng lỗi trả về -> Hiện thêm ô Tên Khách Hàng / Đại Lý
         pk_customer = ""
         if pk_kho == "Kho hàng lỗi trả về":
             pk_customer = st.text_input("🏢 Tên Khách Hàng / Đại Lý trả về *", key="pk_customer").strip()
@@ -420,9 +468,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
         pk_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pk_vt")
 
     with col_p2:
-        # Thay "Hãng tôn phụ kiện" bằng "Tên phụ kiện"
         pk_ten = st.text_input("Tên phụ kiện *", placeholder="Ví dụ: Máng xối Inox 304, Diềm sườn ngói...", key="pk_ten").strip()
-        # Thêm ô "Khổ Phụ Kiện"
         pk_kho_phukien = st.text_input("Khổ Phụ Kiện", placeholder="Ví dụ: Khổ 300, Khổ 400, Khổ 600...", key="pk_kho_pk").strip()
         pk_mau = st.text_input("Màu sắc *", key="pk_mau").strip()
         pk_day = st.number_input("Độ dày tôn (dem/mm)", value=0.40, step=0.05, key="pk_day")
@@ -437,8 +483,6 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
         pk_ly_do_chi_tiet = st.text_area("Ghi chú chi tiết", key="pk_note") if pk_ly_do_chon == "Lỗi khác" else ""
 
     st.markdown("---")
-    
-    # KHU VỰC XỬ LÝ GHÉP ĐƠN - CHỮ TO NỔI BẬT
     with st.container():
         st.markdown("#### ⚡ TRẠNG THÁI XỬ LÝ GHÉP ĐƠN")
         da_xu_ly = st.checkbox("👉 ĐÃ XỬ LÝ (ĐÃ GHÉP VÀO ĐƠN MỚI)", value=False, key="pk_chk_xuly")

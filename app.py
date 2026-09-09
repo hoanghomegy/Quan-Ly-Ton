@@ -58,7 +58,7 @@ def safe_str(val, default=""):
         return default
     return str(val).strip()
 
-# --- 3. KHỞI TẠO BẢNG & TỰ ĐỘNG ĐỒNG BỘ CỘT ---
+# --- 3. KHỞI TẠO BẢNG, BỔ SUNG CỘT & TỰ ĐỘNG TÍNH LẠI PHẾ TRƯỚC ĐÓ (ẢNH 1) ---
 @st.cache_resource
 def init_database_tables():
     with engine.connect() as conn:
@@ -206,6 +206,27 @@ def init_database_tables():
         except Exception:
             pass
 
+        # TỰ ĐỘNG TÍNH LẠI DỮ LIỆU PHẾ CHO CÁC ĐƠN ĐÃ GHÉP TRƯỚC ĐÓ (BACKFILL)
+        try:
+            conn.execute(text("""
+                UPDATE inventory 
+                SET scrap_meters = GREATEST(0.0, ROUND(CAST(sheet_length - COALESCE(matched_length * matched_sheets, 0.0) AS numeric), 2))
+                WHERE is_matched LIKE '%Đã ghép%' 
+                  AND (remaining_meters = 0 OR remaining_meters IS NULL)
+                  AND (scrap_meters = 0 OR scrap_meters IS NULL)
+                  AND matched_length > 0;
+            """))
+            conn.execute(text("""
+                UPDATE panel_inventory 
+                SET scrap_meters = GREATEST(0.0, ROUND(CAST(sheet_length - COALESCE(matched_length * matched_sheets, 0.0) AS numeric), 2))
+                WHERE is_matched LIKE '%Đã ghép%' 
+                  AND (remaining_meters = 0 OR remaining_meters IS NULL)
+                  AND (scrap_meters = 0 OR scrap_meters IS NULL)
+                  AND matched_length > 0;
+            """))
+        except Exception:
+            pass
+
         check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
         if check_admin == 0:
             pw_hash = bcrypt.hashpw("123456".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -237,7 +258,6 @@ DANH_SACH_DO_DAY_PANEL = ["5cm (50mm)", "7.5cm (75mm)", "10cm (100mm)"]
 DANH_SACH_KHO_PANEL = ["Khổ nhỏ 1020mm", "Khổ to 1170mm"]
 DANH_SACH_XOP_PANEL = ["Xốp thường", "Xốp chống cháy"]
 DANH_SACH_MAU_PANEL = ["Trắng", "Vân gỗ"]
-# YÊU CẦU 1: Đổi "Đã xả" sang màu vàng (🟡)
 DANH_SACH_TRANG_THAI_PK = ["🔴 Chưa xử lý", "🟢 Đã xử lý", "🟡 Đã xả"]
 DANH_SACH_TRANG_THAI_TON_PANEL = ["🔴 Chưa ghép", "🟢 Đã ghép"]
 
@@ -426,7 +446,7 @@ if st.session_state.user is not None:
 lua_chon = st.sidebar.radio("Chức năng:", menu_options)
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO (CÓ CỘT PHẾ - ẢNH 2 & TRẠNG THÁI VÀNG - ẢNH 1)
+# 1. TRA CỨU TỒN KHO
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     tab_ton, tab_pk, tab_pn = st.tabs(["📦 Tồn kho Tôn lỗi", "🛠️ Tồn kho Phụ kiện", "🧱 Tồn kho Panel"])
@@ -442,7 +462,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
             loc_mau = st.text_input("🔍 Lọc nhanh theo Màu sắc:", placeholder="Ví dụ: Đen, Xanh, Trắng...", key="filter_mau_ton").strip()
         with col_f3:
             st.write("")
-            st.caption("💡 *Đã bổ sung cột **Phế (m)**: Ghép hết thì Phế = 0, nếu bỏ phế sẽ thể hiện mét thừa lên cột Phế.*")
+            st.caption("💡 *Dữ liệu phế trước đó đã được tự động tính toán bù vào cột **Phế (m)**.*")
 
         df_ton = load_ton_data()
         
@@ -537,7 +557,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                     st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Tôn thành công!"
                     st.rerun()
 
-        # --- CÔNG CỤ GHÉP ĐƠN NHIỀU KÍCH THƯỚC & TÍNH PHẾ TỰ ĐỘNG ---
+        # --- CÔNG CỤ GHÉP ĐƠN NHIỀU KÍCH THƯỚC ---
         st.markdown("---")
         with st.expander("✏️ CÔNG CỤ GHÉP ĐƠN: 1 MÃ ĐƠN CẮT NHIỀU KÍCH THƯỚC & XỬ LÝ PHẾ TỰ ĐỘNG"):
             df_ghep_avail = df_ton[df_ton["Còn lại mét tồn kho"] > 0]
@@ -613,7 +633,6 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             else:
                                 met_du_thua = met_ton_hien_tai - tong_met_da_ghep
                                 
-                                # YÊU CẦU 2: Nếu bỏ phế thì ghi vào Phế, nếu ghép hết hoặc chờ ghép thì Phế = 0
                                 if "Bỏ phế" in lua_chon_phan_thua:
                                     met_ton_moi = 0.0
                                     tam_ton_moi = 0
@@ -687,7 +706,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                         st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Tôn ID {id_del_ton}!"
                         st.rerun()
 
-    # 1.2 TỒN KHO PHỤ KIỆN (MÀU VÀNG CHO ĐÃ XẢ - ẢNH 1)
+    # 1.2 TỒN KHO PHỤ KIỆN
     with tab_pk:
         st.subheader("🛠️ Danh mục Phụ kiện (Máng, Sườn, Xối, Nóc)")
         df_pk = load_pk_data()
@@ -702,7 +721,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                 "Trạng thái": st.column_config.SelectboxColumn(
                     "Trạng thái", 
                     options=DANH_SACH_TRANG_THAI_PK,
-                    help="🔴 Chưa xử lý | 🟢 Đã xử lý | 🟡 Đã xả (đã xả ra nhưng chưa ghép)"
+                    help="🔴 Chưa xử lý | 🟢 Đã xử lý | 🟡 Đã xả"
                 )
             },
             width='stretch',
@@ -782,7 +801,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                         st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Phụ kiện ID {id_del_pk}!"
                         st.rerun()
 
-    # 1.3 TỒN KHO PANEL (CÓ CỘT PHẾ - ẢNH 2)
+    # 1.3 TỒN KHO PANEL
     with tab_pn:
         st.subheader("🧱 Danh mục Panel lỗi tồn kho")
         df_pn = load_panel_data()
@@ -793,11 +812,11 @@ if lua_chon == "📋 Tra cứu tồn kho":
             column_config={
                 "Kho": st.column_config.SelectboxColumn("Kho", options=["Kho hàng lỗi NM", "Kho hàng lỗi trả về"]),
                 "Vị trí": st.column_config.SelectboxColumn("Vị trí", options=DANH_SACH_VI_TRI),
-                "Phế (m)": st.column_config.NumberColumn("Phế (m)", format="%.2f"),
                 "Độ dày Panel": st.column_config.SelectboxColumn("Độ dày Panel", options=DANH_SACH_DO_DAY_PANEL),
                 "Khổ tôn": st.column_config.SelectboxColumn("Khổ tôn", options=DANH_SACH_KHO_PANEL),
                 "Màu": st.column_config.SelectboxColumn("Màu", options=DANH_SACH_MAU_PANEL),
                 "Quy cách xốp": st.column_config.SelectboxColumn("Quy cách xốp", options=DANH_SACH_XOP_PANEL),
+                "Phế (m)": st.column_config.NumberColumn("Phế (m)", format="%.2f"),
                 "Hàng đã xử lý ghép": st.column_config.SelectboxColumn(
                     "Hàng đã xử lý ghép", 
                     options=DANH_SACH_TRANG_THAI_TON_PANEL,
@@ -1420,73 +1439,68 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                 st.info("Kho hiện tại không có panel lỗi tồn kho.")
 
 # =============================================================
-# 6. BÁO CÁO DASHBOARD (YÊU CẦU 3: THEO TUẦN, THÁNG & 4 BIỂU ĐỒ CHUYÊN SÂU)
+# 6. BÁO CÁO DASHBOARD (ĐÃ SỬA LỖI KEYERROR - ẢNH 2)
 # =============================================================
 elif lua_chon == "📊 Báo cáo Dashboard":
     st.title("📊 Báo cáo Dashboard Quản Lý Kho & Xử Lý Lỗi")
     
-    # 1. Bộ lọc thời gian: Tuần / Tháng
     col_dash_filter1, col_dash_filter2 = st.columns([3, 7])
     with col_dash_filter1:
         view_time_mode = st.radio("⏱️ Chế độ xem báo cáo:", ["Theo Tháng", "Theo Tuần", "Toàn bộ lịch sử"], horizontal=True)
     
-    # Đọc dữ liệu thô tổng hợp
     df_ton_all = load_ton_data()
     df_pk_all = load_pk_data()
     df_pn_all = load_panel_data()
     
-    # Chuẩn hóa ngày lỗi
     df_ton_all["Ngày chuẩn"] = pd.to_datetime(df_ton_all["Ngày lỗi"], errors='coerce')
     df_pk_all["Ngày chuẩn"] = pd.to_datetime(df_pk_all["Ngày lỗi"], errors='coerce')
     df_pn_all["Ngày chuẩn"] = pd.to_datetime(df_pn_all["Ngày lỗi"], errors='coerce')
 
     today_dt = pd.to_datetime(datetime.date.today())
 
-    # Lọc thời gian theo tuần / tháng
     if view_time_mode == "Theo Tuần":
         start_period = today_dt - pd.Timedelta(days=today_dt.weekday())
-        df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period]
-        df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period]
-        df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period]
+        df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period].copy()
+        df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period].copy()
+        df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period].copy()
         period_text = f"Tuần này (từ {start_period.strftime('%d/%m/%Y')} đến nay)"
     elif view_time_mode == "Theo Tháng":
         start_period = today_dt.replace(day=1)
-        df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period]
-        df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period]
-        df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period]
+        df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period].copy()
+        df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period].copy()
+        df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period].copy()
         period_text = f"Tháng {today_dt.month}/{today_dt.year}"
     else:
-        df_ton_f = df_ton_all
-        df_pk_f = df_pk_all
-        df_pn_f = df_pn_all
+        df_ton_f = df_ton_all.copy()
+        df_pk_f = df_pk_all.copy()
+        df_pn_f = df_pn_all.copy()
         period_text = "Toàn bộ dữ liệu tích lũy"
 
     st.caption(f"📅 Khoảng thời gian phân tích: **{period_text}**")
 
-    # TÍNH TOÁN CÁC CHỈ SỐ KPI TỔNG QUÁT (MỤC 3)
-    # 1. Tổng số m lỗi
-    m_loi_ton = df_ton_f["Dài (m)"].fillna(0) * df_ton_f["Số tấm còn"].fillna(0) + df_ton_f["Còn lại mét tồn kho"].fillna(0)
-    # Tổng mét phát sinh ban đầu = Tổng mét (hoặc Dài x Số tấm ban đầu)
-    m_loi_total = df_ton_f["Dài (m)"].fillna(0) * (df_ton_f["Số tấm còn"].fillna(0) + df_ton_f["Số lượng tấm ghép"].fillna(0))
-    tong_m_loi = m_loi_total.sum() + df_pk_f["Tổng mét"].sum() + df_pn_f["Tổng mét dài"].sum()
+    # SỬA LỖI KEYERROR: Tính toán mét an toàn tránh sai tên cột
+    m_loi_ton = (df_ton_f["Dài (m)"].fillna(0) * df_ton_f["Số tấm còn"].fillna(0)) + (df_ton_f["Ghép sang kích thước (m)"].fillna(0) * df_ton_f["Số lượng tấm ghép"].fillna(0)) + df_ton_f["Phế (m)"].fillna(0)
+    m_loi_pk = df_pk_f["Tổng mét"].fillna(0) if "Tổng mét" in df_pk_f.columns else pd.Series(0, index=df_pk_f.index)
+    m_loi_pn = (df_pn_f["Dài 1 tấm (m)"].fillna(0) * df_pn_f["Số tấm còn"].fillna(0)) + (df_pn_f["Ghép sang kích thước (m)"].fillna(0) * df_pn_f["Số lượng tấm ghép"].fillna(0)) + df_pn_f["Phế (m)"].fillna(0)
+    
+    tong_m_loi = float(m_loi_ton.sum() + m_loi_pk.sum() + m_loi_pn.sum())
 
     # 2. Tổng số m ghép được
-    tong_m_ghep = (
+    tong_m_ghep = float(
         (df_ton_f["Ghép sang kích thước (m)"].fillna(0) * df_ton_f["Số lượng tấm ghép"].fillna(0)).sum() +
         (df_pn_f["Ghép sang kích thước (m)"].fillna(0) * df_pn_f["Số lượng tấm ghép"].fillna(0)).sum()
     )
 
     # 3. Số lượng phế (m)
-    tong_m_phe = df_ton_f["Phế (m)"].sum() + df_pn_f["Phế (m)"].sum()
+    tong_m_phe = float(df_ton_f["Phế (m)"].fillna(0).sum() + df_pn_f["Phế (m)"].fillna(0).sum())
 
     # 4. Tồn kho tổng số m chưa ghép được
-    tong_m_ton_chua_ghep = (
-        df_ton_f[df_ton_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].sum() +
-        df_pn_f[df_pn_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].sum() +
-        df_pk_f[df_pk_f["Trạng thái"].str.contains("Chưa xử lý", na=False)]["Tổng mét"].sum()
+    tong_m_ton_chua_ghep = float(
+        df_ton_f[df_ton_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].fillna(0).sum() +
+        df_pn_f[df_pn_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].fillna(0).sum() +
+        df_pk_f[df_pk_f["Trạng thái"].str.contains("Chưa xử lý", na=False)]["Tổng mét"].fillna(0).sum()
     )
 
-    # HIỂN THỊ 4 THẺ CHỈ SỐ METRIC
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("🔴 Tổng số m lỗi phát sinh", f"{tong_m_loi:,.1f} m")
     k2.metric("🟢 Tổng số m ghép được", f"{tong_m_ghep:,.1f} m")
@@ -1495,11 +1509,9 @@ elif lua_chon == "📊 Báo cáo Dashboard":
 
     st.markdown("---")
 
-    # BIỂU ĐỒ 1: BIỂU ĐỒ PHÁT SINH LỖI (THEO THỜI GIAN & NGUYÊN NHÂN)
     st.subheader("1. 📈 Biểu đồ phát sinh lỗi")
     col_chart_l1, col_chart_l2 = st.columns(2)
     with col_chart_l1:
-        # Xu hướng lỗi theo ngày
         df_loi_trend = df_ton_f[["Ngày lỗi", "Còn lại mét tồn kho"]].dropna().groupby("Ngày lỗi").sum()
         if not df_loi_trend.empty:
             st.caption("Xu hướng chiều dài lỗi phát sinh theo ngày (m):")
@@ -1508,7 +1520,6 @@ elif lua_chon == "📊 Báo cáo Dashboard":
             st.info("Chưa có phát sinh lỗi trong giai đoạn này.")
             
     with col_chart_l2:
-        # Cơ cấu nguyên nhân lỗi
         df_loi_reason = df_ton_f["Nguyên nhân"].value_counts()
         if not df_loi_reason.empty:
             st.caption("Số lần lỗi phân theo Nguyên nhân phát sinh:")
@@ -1516,11 +1527,9 @@ elif lua_chon == "📊 Báo cáo Dashboard":
         else:
             st.info("Chưa có dữ liệu nguyên nhân.")
 
-    # BIỂU ĐỒ 2: BIỂU ĐỒ GHÉP ĐƯỢC HÀNG
     st.subheader("2. ✂️ Biểu đồ ghép được hàng")
     col_chart_g1, col_chart_g2 = st.columns(2)
     with col_chart_g1:
-        # Lấy lịch sử ghép theo nhân viên
         with engine.connect() as conn:
             df_ghep_hist = pd.read_sql(text("""
                 SELECT matched_by, SUM(matched_meters) as "Tổng m ghép", COUNT(id) as "Số lần ghép"
@@ -1535,12 +1544,10 @@ elif lua_chon == "📊 Báo cáo Dashboard":
             st.info("Chưa có dữ liệu lịch sử ghép.")
 
     with col_chart_g2:
-        # Bảng chi tiết top ghép
         st.caption("Bảng thành tích giải cứu hàng lỗi:")
         st.dataframe(df_ghep_hist, width='stretch')
 
-    # BIỂU ĐỒ 3: SO SÁNH SỐ LƯỢNG PHẾ / MÉT GHÉP / MÉT LỖI
-    st.subheader("3. ⚖️ Biểu đồ so sánh: Phế / Đã ghép / Tổng lỗi")
+    st.subheader("3. ⚖️ Biểu đồ so sánh: Phế / Đã ghép / Tồn chưa ghép")
     df_compare = pd.DataFrame({
         "Chỉ số": ["Phế thải (m)", "Đã ghép được (m)", "Tồn chưa ghép (m)"],
         "Số mét": [tong_m_phe, tong_m_ghep, tong_m_ton_chua_ghep]

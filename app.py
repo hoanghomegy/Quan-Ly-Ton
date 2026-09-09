@@ -7,7 +7,7 @@ import unicodedata
 
 st.set_page_config(page_title="Quản Lý Kho Tôn, Phụ Kiện & Panel", layout="wide")
 
-# --- 1. TỐI ƯU KẾT NỐI DATABASE (CACHE) ---
+# --- 1. KẾT NỐI DATABASE (CACHE) ---
 @st.cache_resource
 def get_db_engine():
     if "db_url" in st.secrets:
@@ -26,7 +26,7 @@ def get_db_engine():
 
 engine = get_db_engine()
 
-# --- 2. HÀM CHUYỂN ĐỔI KIỂU DỮ LIỆU AN TOÀN ---
+# --- 2. HÀM CHUYỂN ĐỔI AN TOÀN ---
 def safe_float(val, default=0.0):
     if pd.isna(val) or val is None or str(val).strip() == "":
         return float(default)
@@ -58,7 +58,14 @@ def safe_str(val, default=""):
         return default
     return str(val).strip()
 
-# --- 3. KHỞI TẠO BẢNG, BỔ SUNG CỘT & TỰ ĐỘNG TÍNH LẠI PHẾ TRƯỚC ĐÓ (ẢNH 1) ---
+def xoa_dau_tieng_viet(text_input):
+    if not text_input or pd.isna(text_input):
+        return ""
+    text_input = str(text_input).replace('đ', 'd').replace('Đ', 'd')
+    nfkd_form = unicodedata.normalize('NFKD', text_input)
+    return "".join([c for c in nfkd_form if not unicodedata.combining(c)]).lower().strip()
+
+# --- 3. KHỞI TẠO BẢNG & TỰ ĐỘNG CẬP NHẬT ---
 @st.cache_resource
 def init_database_tables():
     with engine.connect() as conn:
@@ -206,27 +213,6 @@ def init_database_tables():
         except Exception:
             pass
 
-        # TỰ ĐỘNG TÍNH LẠI DỮ LIỆU PHẾ CHO CÁC ĐƠN ĐÃ GHÉP TRƯỚC ĐÓ (BACKFILL)
-        try:
-            conn.execute(text("""
-                UPDATE inventory 
-                SET scrap_meters = GREATEST(0.0, ROUND(CAST(sheet_length - COALESCE(matched_length * matched_sheets, 0.0) AS numeric), 2))
-                WHERE is_matched LIKE '%Đã ghép%' 
-                  AND (remaining_meters = 0 OR remaining_meters IS NULL)
-                  AND (scrap_meters = 0 OR scrap_meters IS NULL)
-                  AND matched_length > 0;
-            """))
-            conn.execute(text("""
-                UPDATE panel_inventory 
-                SET scrap_meters = GREATEST(0.0, ROUND(CAST(sheet_length - COALESCE(matched_length * matched_sheets, 0.0) AS numeric), 2))
-                WHERE is_matched LIKE '%Đã ghép%' 
-                  AND (remaining_meters = 0 OR remaining_meters IS NULL)
-                  AND (scrap_meters = 0 OR scrap_meters IS NULL)
-                  AND matched_length > 0;
-            """))
-        except Exception:
-            pass
-
         check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
         if check_admin == 0:
             pw_hash = bcrypt.hashpw("123456".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -239,18 +225,14 @@ def init_database_tables():
 
 init_database_tables()
 
-def xoa_dau_tieng_viet(text_input):
-    if not text_input or pd.isna(text_input):
-        return ""
-    text_input = str(text_input).replace('đ', 'd').replace('Đ', 'd')
-    nfkd_form = unicodedata.normalize('NFKD', text_input)
-    return "".join([c for c in nfkd_form if not unicodedata.combining(c)]).lower().strip()
-
+# DANH MỤC THÔNG SỐ (ẢNH 2 & ẢNH 3)
 DANH_SACH_HANG_TON = ["Poshaco", "Kazin", "Kazin Kim Cương", "Kamanz", "SSSC", "Simtek", "Hòa Phát", "Hoa Sen", "Olimpic", "Khác"]
-DANH_SACH_SONG = ["6 sóng", "11 sóng"]
+# Đã thêm Sóng Ngói (Ảnh 3)
+DANH_SACH_SONG = ["6 sóng", "11 sóng", "Sóng Ngói"]
 DANH_SACH_LOAI_TON = ["Tôn 1L", "Tôn 3L", "Ngói 1L", "Ngói 3L"]
 DANH_SACH_XOP = ["Không xốp", "Xốp Eco", "Xốp G8", "Xốp G7", "Xốp G*", "Ngói N8", "Ngói N*"]
-DANH_SACH_VI_TRI = ["KV_Cán tôn 1L", "KV_Cán tôn 3L", "KV_Ngói xốp", "KV_PK", "KV_Panel"]
+# Đã sửa thành KV_Xốp 3L (Ảnh 2)
+DANH_SACH_VI_TRI = ["KV_Cán tôn 1L", "KV_Cán tôn 3L", "KV_Xốp 3L", "KV_PK", "KV_Panel"]
 DANH_SACH_NGUYEN_NHAN_CHUNG = ["Đuôi cuộn", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
 DANH_SACH_NGUYEN_NHAN_PANEL = ["Đuôi cuộn", "Không đủ thân máy", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
 DANH_SACH_PHU_KIEN = ["Máng", "Sườn", "Xối", "Nóc"]
@@ -261,7 +243,7 @@ DANH_SACH_MAU_PANEL = ["Trắng", "Vân gỗ"]
 DANH_SACH_TRANG_THAI_PK = ["🔴 Chưa xử lý", "🟢 Đã xử lý", "🟡 Đã xả"]
 DANH_SACH_TRANG_THAI_TON_PANEL = ["🔴 Chưa ghép", "🟢 Đã ghép"]
 
-# --- 4. BỘ HÀM LOAD DỮ LIỆU CÓ CACHE ---
+# --- 4. BỘ HÀM TẢI DỮ LIỆU ---
 @st.cache_data(ttl=2)
 def load_ton_data():
     with engine.connect() as conn:
@@ -336,8 +318,17 @@ def load_panel_data():
             ORDER BY id DESC
         """), conn)
 
+# --- 5. DUY TRÌ ĐĂNG NHẬP VĨNH VIỄN (KHÔNG BỊ THOÁT RA KHI TREO MÁY - MỤC 4) ---
 if "user" not in st.session_state:
     st.session_state.user = None
+
+# Kiểm tra lưu phiên qua Query Params (URL) để không bao giờ bị văng app
+if st.session_state.user is None and "u" in st.query_params:
+    cached_user = st.query_params["u"]
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT username, full_name, role, is_approved FROM users WHERE username = :u"), {"u": cached_user}).fetchone()
+    if res and res[3] == 1:
+        st.session_state.user = {"username": res[0], "name": res[1], "role": res[2]}
 
 if "msg_success" in st.session_state:
     st.success(st.session_state.msg_success)
@@ -366,6 +357,8 @@ if st.session_state.user is None:
                         st.sidebar.warning("⏳ Tài khoản đang chờ Quản trị viên phê duyệt!")
                     elif bcrypt.checkpw(p_login.encode('utf-8'), pw_db.encode('utf-8')):
                         st.session_state.user = {"username": u_login, "name": f_name, "role": r_role}
+                        # Lưu cookie/URL param để giữ đăng nhập vĩnh viễn
+                        st.query_params["u"] = u_login
                         st.rerun()
                     else:
                         st.sidebar.error("Mật khẩu không chính xác!")
@@ -401,6 +394,8 @@ else:
     
     if st.sidebar.button("Đăng xuất"):
         st.session_state.user = None
+        if "u" in st.query_params:
+            del st.query_params["u"]
         st.rerun()
         
     with st.sidebar.expander("🔑 Đổi mật khẩu"):
@@ -462,7 +457,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
             loc_mau = st.text_input("🔍 Lọc nhanh theo Màu sắc:", placeholder="Ví dụ: Đen, Xanh, Trắng...", key="filter_mau_ton").strip()
         with col_f3:
             st.write("")
-            st.caption("💡 *Dữ liệu phế trước đó đã được tự động tính toán bù vào cột **Phế (m)**.*")
+            st.caption("💡 *Đã bổ sung cột **Phế (m)**: Ghép hết thì Phế = 0, nếu bỏ phế sẽ thể hiện mét thừa lên cột Phế.*")
 
         df_ton = load_ton_data()
         
@@ -557,7 +552,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                     st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Tôn thành công!"
                     st.rerun()
 
-        # --- CÔNG CỤ GHÉP ĐƠN NHIỀU KÍCH THƯỚC ---
+        # --- CÔNG CỤ GHÉP ĐƠN NHIỀU KÍCH THƯỚC & TÍNH PHẾ TỰ ĐỘNG ---
         st.markdown("---")
         with st.expander("✏️ CÔNG CỤ GHÉP ĐƠN: 1 MÃ ĐƠN CẮT NHIỀU KÍCH THƯỚC & XỬ LÝ PHẾ TỰ ĐỘNG"):
             df_ghep_avail = df_ton[df_ton["Còn lại mét tồn kho"] > 0]
@@ -921,12 +916,14 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
             ngay_loi_ton = st.date_input("Ngày phát sinh lỗi", datetime.date.today())
             kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"])
             don = st.text_input("Mã đơn hàng (không có thì bỏ trống)").strip()
+            # Đã cập nhật KV_Xốp 3L (Ảnh 2)
             vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI)
         with col_b:
             hang = st.selectbox("Hãng tôn *", DANH_SACH_HANG_TON)
             hang_khac = st.text_input("Nhập hãng khác (nếu chọn 'Khác')").strip() if hang == "Khác" else ""
             mau = st.text_input("Màu sắc *").strip()
             day = st.number_input("Độ dày (dem/mm)", value=0.40, step=0.05)
+            # Đã có Sóng Ngói (Ảnh 3)
             song = st.selectbox("Loại sóng", DANH_SACH_SONG)
         with col_c:
             loai_ton = st.selectbox("Loại tôn", DANH_SACH_LOAI_TON)
@@ -1068,7 +1065,7 @@ elif lua_chon == "➕ Nhập lỗi Panel":
         ngay_loi_pn = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pn_ngay")
         pn_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pn_kho")
         pn_don = st.text_input("Mã đơn hàng (không có thì bỏ trống)", key="pn_don").strip()
-        pn_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pn_vt")
+        vi_tri_pn = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pn_vt")
     with col_pn2:
         pn_hang = st.text_input("Hãng tôn mặt ngoài *", key="pn_hang").strip()
         pn_day_ton = st.number_input("Độ dày tôn mặt ngoài (dem/mm) *", value=0.40, step=0.05, key="pn_day_ton")
@@ -1109,7 +1106,7 @@ elif lua_chon == "➕ Nhập lỗi Panel":
                                              is_matched, reason, fault_by)
                 VALUES (:nl, :wh, :vt, :oc, :br, :st, :co, :ct, :kt, :fo, :sl, :cs, :tm, :rm, 0.0, :ta, 'Chưa ghép', :re, :fb)
                 """), {
-                    "nl": safe_date(ngay_loi_pn), "wh": safe_str(pn_kho), "vt": safe_str(pn_vi_tri), "oc": ma_pn_luu, 
+                    "nl": safe_date(ngay_loi_pn), "wh": safe_str(pn_kho), "vt": safe_str(vi_tri_pn), "oc": ma_pn_luu, 
                     "br": safe_str(pn_hang), "st": safe_float(pn_day_ton), "co": safe_str(pn_mau), 
                     "ct": safe_str(pn_core), "kt": safe_str(pn_kho_ton), "fo": safe_str(pn_xop_quy_cach), 
                     "sl": pn_dai_val, "cs": pn_so_tam_val, "tm": pn_tong_m, "rm": pn_tong_m, "ta": pn_tong_m2, 
@@ -1439,14 +1436,14 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                 st.info("Kho hiện tại không có panel lỗi tồn kho.")
 
 # =============================================================
-# 6. BÁO CÁO DASHBOARD (ĐÃ SỬA LỖI KEYERROR - ẢNH 2)
+# 6. BÁO CÁO DASHBOARD (GỌN GÀNG, BỎ BIỂU ĐỒ - ẢNH 1)
 # =============================================================
 elif lua_chon == "📊 Báo cáo Dashboard":
-    st.title("📊 Báo cáo Dashboard Quản Lý Kho & Xử Lý Lỗi")
+    st.title("📊 Báo cáo Thống kê Toàn xưởng (Tôn - Phụ kiện - Panel)")
     
-    col_dash_filter1, col_dash_filter2 = st.columns([3, 7])
+    col_dash_filter1, col_dash_filter2 = st.columns([4, 6])
     with col_dash_filter1:
-        view_time_mode = st.radio("⏱️ Chế độ xem báo cáo:", ["Theo Tháng", "Theo Tuần", "Toàn bộ lịch sử"], horizontal=True)
+        view_time_mode = st.radio("⏱️ Chế độ xem báo cáo:", ["Theo Tuần", "Theo Tháng", "Theo Năm", "Toàn bộ lịch sử"], horizontal=True, index=1)
     
     df_ton_all = load_ton_data()
     df_pk_all = load_pk_data()
@@ -1464,43 +1461,51 @@ elif lua_chon == "📊 Báo cáo Dashboard":
         df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period].copy()
         df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period].copy()
         period_text = f"Tuần này (từ {start_period.strftime('%d/%m/%Y')} đến nay)"
+        sql_time_filter = "WHERE matched_date >= CURRENT_DATE - INTERVAL '7 days'"
     elif view_time_mode == "Theo Tháng":
         start_period = today_dt.replace(day=1)
         df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period].copy()
         df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period].copy()
         df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period].copy()
         period_text = f"Tháng {today_dt.month}/{today_dt.year}"
+        sql_time_filter = "WHERE matched_date >= DATE_TRUNC('month', CURRENT_DATE)"
+    elif view_time_mode == "Theo Năm":
+        start_period = today_dt.replace(month=1, day=1)
+        df_ton_f = df_ton_all[df_ton_all["Ngày chuẩn"] >= start_period].copy()
+        df_pk_f = df_pk_all[df_pk_all["Ngày chuẩn"] >= start_period].copy()
+        df_pn_f = df_pn_all[df_pn_all["Ngày chuẩn"] >= start_period].copy()
+        period_text = f"Năm {today_dt.year}"
+        sql_time_filter = "WHERE matched_date >= DATE_TRUNC('year', CURRENT_DATE)"
     else:
         df_ton_f = df_ton_all.copy()
         df_pk_f = df_pk_all.copy()
         df_pn_f = df_pn_all.copy()
-        period_text = "Toàn bộ dữ liệu tích lũy"
+        period_text = "Toàn bộ lịch sử"
+        sql_time_filter = ""
 
     st.caption(f"📅 Khoảng thời gian phân tích: **{period_text}**")
 
-    # SỬA LỖI KEYERROR: Tính toán mét an toàn tránh sai tên cột
+    # TÍNH TOÁN 4 CHỈ SỐ METRIC (ĐÃ SỬA CHUẨN TÊN CỘT)
     m_loi_ton = (df_ton_f["Dài (m)"].fillna(0) * df_ton_f["Số tấm còn"].fillna(0)) + (df_ton_f["Ghép sang kích thước (m)"].fillna(0) * df_ton_f["Số lượng tấm ghép"].fillna(0)) + df_ton_f["Phế (m)"].fillna(0)
     m_loi_pk = df_pk_f["Tổng mét"].fillna(0) if "Tổng mét" in df_pk_f.columns else pd.Series(0, index=df_pk_f.index)
     m_loi_pn = (df_pn_f["Dài 1 tấm (m)"].fillna(0) * df_pn_f["Số tấm còn"].fillna(0)) + (df_pn_f["Ghép sang kích thước (m)"].fillna(0) * df_pn_f["Số lượng tấm ghép"].fillna(0)) + df_pn_f["Phế (m)"].fillna(0)
     
     tong_m_loi = float(m_loi_ton.sum() + m_loi_pk.sum() + m_loi_pn.sum())
 
-    # 2. Tổng số m ghép được
     tong_m_ghep = float(
         (df_ton_f["Ghép sang kích thước (m)"].fillna(0) * df_ton_f["Số lượng tấm ghép"].fillna(0)).sum() +
         (df_pn_f["Ghép sang kích thước (m)"].fillna(0) * df_pn_f["Số lượng tấm ghép"].fillna(0)).sum()
     )
 
-    # 3. Số lượng phế (m)
     tong_m_phe = float(df_ton_f["Phế (m)"].fillna(0).sum() + df_pn_f["Phế (m)"].fillna(0).sum())
 
-    # 4. Tồn kho tổng số m chưa ghép được
     tong_m_ton_chua_ghep = float(
         df_ton_f[df_ton_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].fillna(0).sum() +
         df_pn_f[df_pn_f["Hàng đã xử lý ghép"].str.contains("Chưa ghép", na=False)]["Còn lại mét tồn kho"].fillna(0).sum() +
         df_pk_f[df_pk_f["Trạng thái"].str.contains("Chưa xử lý", na=False)]["Tổng mét"].fillna(0).sum()
     )
 
+    # 4 THẺ CHỈ SỐ NHƯ BẠN KHOANH ĐỎ Ở ẢNH 1
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("🔴 Tổng số m lỗi phát sinh", f"{tong_m_loi:,.1f} m")
     k2.metric("🟢 Tổng số m ghép được", f"{tong_m_ghep:,.1f} m")
@@ -1509,50 +1514,50 @@ elif lua_chon == "📊 Báo cáo Dashboard":
 
     st.markdown("---")
 
-    st.subheader("1. 📈 Biểu đồ phát sinh lỗi")
-    col_chart_l1, col_chart_l2 = st.columns(2)
-    with col_chart_l1:
-        df_loi_trend = df_ton_f[["Ngày lỗi", "Còn lại mét tồn kho"]].dropna().groupby("Ngày lỗi").sum()
-        if not df_loi_trend.empty:
-            st.caption("Xu hướng chiều dài lỗi phát sinh theo ngày (m):")
-            st.line_chart(df_loi_trend)
+    # BẢNG BÁO CÁO TOP 5 (GỌN GÀNG, BỎ BIỂU ĐỒ)
+    c_d1, c_d2 = st.columns(2)
+    with c_d1:
+        st.subheader(f"⚠️ Top 5 người/tổ gây lỗi nhiều nhất ({view_time_mode})")
+        # Gom dữ liệu lỗi từ 3 bảng trong khoảng thời gian chọn
+        df_fault_combined = pd.concat([
+            df_ton_f[["Lỗi do ai", "Còn lại mét tồn kho"]].rename(columns={"Lỗi do ai": "Người/Tổ máy", "Còn lại mét tồn kho": "Mét"}),
+            df_pk_f[["Lỗi do ai", "Tổng mét"]].rename(columns={"Lỗi do ai": "Người/Tổ máy", "Tổng mét": "Mét"}),
+            df_pn_f[["Lỗi do ai", "Còn lại mét tồn kho"]].rename(columns={"Lỗi do ai": "Người/Tổ máy", "Còn lại mét tồn kho": "Mét"})
+        ])
+        df_fault_combined = df_fault_combined[df_fault_combined["Người/Tổ máy"].str.strip() != ""]
+        
+        if not df_fault_combined.empty:
+            df_top_fault = df_fault_combined.groupby("Người/Tổ máy")["Mét"].agg(["sum", "count"]).reset_index()
+            df_top_fault.columns = ["Người/Tổ máy", "Tổng mét lỗi (m)", "Số lần vi phạm"]
+            df_top_fault = df_top_fault.sort_values(by="Tổng mét lỗi (m)", ascending=False).head(5)
+            st.dataframe(df_top_fault, use_container_width=True)
         else:
-            st.info("Chưa có phát sinh lỗi trong giai đoạn này.")
-            
-    with col_chart_l2:
-        df_loi_reason = df_ton_f["Nguyên nhân"].value_counts()
-        if not df_loi_reason.empty:
-            st.caption("Số lần lỗi phân theo Nguyên nhân phát sinh:")
-            st.bar_chart(df_loi_reason)
-        else:
-            st.info("Chưa có dữ liệu nguyên nhân.")
+            st.info("Không có dữ liệu lỗi phát sinh trong khoảng thời gian này.")
 
-    st.subheader("2. ✂️ Biểu đồ ghép được hàng")
-    col_chart_g1, col_chart_g2 = st.columns(2)
-    with col_chart_g1:
+    with c_d2:
+        st.subheader(f"🏆 Top 5 người ghép được hàng nhiều nhất ({view_time_mode})")
         with engine.connect() as conn:
-            df_ghep_hist = pd.read_sql(text("""
-                SELECT matched_by, SUM(matched_meters) as "Tổng m ghép", COUNT(id) as "Số lần ghép"
-                FROM matching_history
-                GROUP BY matched_by
+            df_top_match = pd.read_sql(text(f"""
+                SELECT matched_by as "Nhân viên ghép", 
+                       ROUND(CAST(SUM(matched_meters) AS numeric), 2) as "Tổng mét ghép (m)", 
+                       COUNT(id) as "Số lần ghép"
+                FROM (
+                    SELECT matched_by, matched_meters, id, matched_date FROM matching_history
+                    UNION ALL
+                    SELECT matched_by, matched_meters, id, matched_date FROM accessory_matching_history
+                    UNION ALL
+                    SELECT matched_by, matched_meters, id, matched_date FROM panel_matching_history
+                ) t
+                {sql_time_filter}
+                GROUP BY matched_by 
                 ORDER BY SUM(matched_meters) DESC
+                LIMIT 5
             """), conn)
-        if not df_ghep_hist.empty:
-            st.caption("Tổng mét hàng đã ghép cứu được theo từng nhân viên:")
-            st.bar_chart(data=df_ghep_hist.set_index("matched_by")["Tổng m ghép"])
+            
+        if not df_top_match.empty and df_top_match["Tổng mét ghép (m)"].sum() > 0:
+            st.dataframe(df_top_match, use_container_width=True)
         else:
-            st.info("Chưa có dữ liệu lịch sử ghép.")
-
-    with col_chart_g2:
-        st.caption("Bảng thành tích giải cứu hàng lỗi:")
-        st.dataframe(df_ghep_hist, width='stretch')
-
-    st.subheader("3. ⚖️ Biểu đồ so sánh: Phế / Đã ghép / Tồn chưa ghép")
-    df_compare = pd.DataFrame({
-        "Chỉ số": ["Phế thải (m)", "Đã ghép được (m)", "Tồn chưa ghép (m)"],
-        "Số mét": [tong_m_phe, tong_m_ghep, tong_m_ton_chua_ghep]
-    }).set_index("Chỉ số")
-    st.bar_chart(df_compare)
+            st.info("Không có dữ liệu ghép hàng trong khoảng thời gian này.")
 
 # =============================================================
 # 7. PHÊ DUYỆT TÀI KHOẢN (ADMIN)

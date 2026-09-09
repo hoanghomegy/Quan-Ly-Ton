@@ -124,6 +124,7 @@ def init_database_tables():
             vi_tri_de VARCHAR(50),
             order_code VARCHAR(50),
             brand VARCHAR(50),
+            steel_thickness REAL DEFAULT 0.40,
             color VARCHAR(50),
             core_thickness VARCHAR(50),
             kho_ton VARCHAR(50),
@@ -157,6 +158,7 @@ def init_database_tables():
         """))
         
         try:
+            conn.execute(text("ALTER TABLE panel_inventory ADD COLUMN IF NOT EXISTS steel_thickness REAL DEFAULT 0.40;"))
             conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS customer_name VARCHAR(150);"))
             conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS kho_phu_kien VARCHAR(50);"))
             conn.execute(text("ALTER TABLE accessory_inventory ADD COLUMN IF NOT EXISTS nguoi_ghep VARCHAR(100);"))
@@ -237,8 +239,8 @@ def load_panel_data():
     with engine.connect() as conn:
         return pd.read_sql(text("""
             SELECT id, ngay_loi as "Ngày lỗi", source_warehouse as "Kho", vi_tri_de as "Vị trí", 
-                   order_code as "Mã đơn", brand as "Hãng tôn", color as "Màu", 
-                   core_thickness as "Độ dày Panel", kho_ton as "Khổ tôn", foam_type as "Quy cách xốp", 
+                   order_code as "Mã đơn", brand as "Hãng tôn", COALESCE(steel_thickness, 0.40) as "Dày tôn (mm)", 
+                   color as "Màu", core_thickness as "Độ dày Panel", kho_ton as "Khổ tôn", foam_type as "Quy cách xốp", 
                    sheet_length as "Dài 1 tấm (m)", current_sheets as "Số tấm còn", 
                    COALESCE(remaining_meters, total_meters) as "Còn lại mét tồn kho",
                    total_area_m2 as "Tổng m2",
@@ -364,11 +366,13 @@ DANH_SACH_SONG = ["6 sóng", "11 sóng"]
 DANH_SACH_LOAI_TON = ["Tôn 1L", "Tôn 3L", "Ngói 1L", "Ngói 3L"]
 DANH_SACH_XOP = ["Không xốp", "Xốp Eco", "Xốp G8", "Xốp G7", "Xốp G*", "Ngói N8", "Ngói N*"]
 DANH_SACH_VI_TRI = ["KV_Cán tôn 1L", "KV_Cán tôn 3L", "KV_Ngói xốp", "KV_PK", "KV_Panel"]
-DANH_SACH_NGUYEN_NHAN = ["Đuôi cuộn", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
+DANH_SACH_NGUYEN_NHAN_CHUNG = ["Đuôi cuộn", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
+DANH_SACH_NGUYEN_NHAN_PANEL = ["Đuôi cuộn", "Không đủ thân máy", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
 DANH_SACH_PHU_KIEN = ["Máng", "Sườn", "Xối", "Nóc"]
 DANH_SACH_DO_DAY_PANEL = ["5cm (50mm)", "7.5cm (75mm)", "10cm (100mm)"]
 DANH_SACH_KHO_PANEL = ["Khổ nhỏ 1020mm", "Khổ to 1170mm"]
 DANH_SACH_XOP_PANEL = ["Xốp thường", "Xốp chống cháy"]
+DANH_SACH_MAU_PANEL = ["Trắng", "Vân gỗ"]
 
 # =============================================================
 # 1. TRA CỨU TỒN KHO
@@ -555,6 +559,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                 "Vị trí": st.column_config.SelectboxColumn("Vị trí", options=DANH_SACH_VI_TRI),
                 "Độ dày Panel": st.column_config.SelectboxColumn("Độ dày Panel", options=DANH_SACH_DO_DAY_PANEL),
                 "Khổ tôn": st.column_config.SelectboxColumn("Khổ tôn", options=DANH_SACH_KHO_PANEL),
+                "Màu": st.column_config.SelectboxColumn("Màu", options=DANH_SACH_MAU_PANEL),
                 "Quy cách xốp": st.column_config.SelectboxColumn("Quy cách xốp", options=DANH_SACH_XOP_PANEL),
                 "Hàng đã xử lý ghép": st.column_config.SelectboxColumn("Hàng đã xử lý ghép", options=["Chưa ghép", "Đã ghép một phần", "Đã ghép xong"])
             },
@@ -578,6 +583,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                                 vi_tri_de = :vt,
                                 order_code = :oc,
                                 brand = :br,
+                                steel_thickness = :st,
                                 color = :co,
                                 core_thickness = :ct,
                                 kho_ton = :kt,
@@ -596,7 +602,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             WHERE id = :id
                         """), {
                             "nl": nl_pn_val, "wh": r["Kho"], "vt": r["Vị trí"], "oc": r["Mã đơn"],
-                            "br": r["Hãng tôn"], "co": r["Màu"], "ct": r["Độ dày Panel"],
+                            "br": r["Hãng tôn"], "st": r["Dày tôn (mm)"], "co": r["Màu"], "ct": r["Độ dày Panel"],
                             "kt": r["Khổ tôn"], "fo": r["Quy cách xốp"], "sl": r["Dài 1 tấm (m)"],
                             "cs": r["Số tấm còn"], "rm": r["Còn lại mét tồn kho"], "ta": m2_moi,
                             "im": r["Hàng đã xử lý ghép"], "re": r["Nguyên nhân"], "fb": r["Lỗi do ai"],
@@ -648,7 +654,7 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
             dai = st.number_input("Độ dài 1 tấm (m)", value=6.0, step=0.1)
             so_tam = st.number_input("Số tấm", min_value=1, value=5, step=1)
             loi_ai = st.text_input("Lỗi do ai (Tên NV / Tổ máy)").strip()
-            ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN)
+            ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN_CHUNG)
             ly_do_chi_tiet = st.text_area("Ghi chú chi tiết") if ly_do_chon == "Lỗi khác" else ""
 
         btn_luu_ton = st.form_submit_button("💾 Lưu tôn lỗi vào kho", type="primary")
@@ -701,7 +707,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
         with col_p3:
             pk_so_tam = st.number_input("Số tấm (cái)", min_value=1, value=5, step=1, key="pk_tam")
             pk_loi_ai = st.text_input("Lỗi do ai (Tên NV / Tổ chấn)", key="pk_loi_ai").strip()
-            pk_ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN, key="pk_nn")
+            pk_ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN_CHUNG, key="pk_nn")
             pk_ly_do_chi_tiet = st.text_area("Ghi chú chi tiết", key="pk_note") if pk_ly_do_chon == "Lỗi khác" else ""
 
         st.markdown("---")
@@ -762,57 +768,68 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
             st.rerun()
 
 # =============================================================
-# 4. ➕ NHẬP LỖI PANEL
+# 4. ➕ NHẬP LỖI PANEL (CẬP NHẬT THEO ĐÚNG YÊU CẦU KHOANH ĐỎ)
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Panel":
     st.title("➕ Nhập hàng lỗi phát sinh cho Panel")
-    with st.form("form_nhap_loi_panel"):
-        col_pn1, col_pn2, col_pn3 = st.columns(3)
-        with col_pn1:
-            ngay_loi_pn = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pn_ngay")
-            pn_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pn_kho")
-            pn_don = st.text_input("Mã đơn hàng (không có thì bỏ trống)", key="pn_don").strip()
-            pn_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pn_vt")
-        with col_pn2:
-            pn_hang = st.text_input("Hãng tôn mặt ngoài *", key="pn_hang").strip()
-            pn_mau = st.text_input("Màu sắc tôn mặt", value="Trắng sữa / Ghi sáng", key="pn_mau").strip()
-            pn_core = st.selectbox("Độ dày Panel", DANH_SACH_DO_DAY_PANEL, key="pn_core")
-            pn_kho_ton = st.selectbox("Khổ tôn Panel", DANH_SACH_KHO_PANEL, key="pn_kho_ton")
-        with col_pn3:
-            pn_xop_quy_cach = st.selectbox("Quy cách xốp lõi", DANH_SACH_XOP_PANEL, key="pn_xop")
-            pn_dai = st.number_input("Chiều dài 1 tấm (m)", value=5.0, step=0.1, key="pn_dai")
-            pn_so_tam = st.number_input("Số tấm", min_value=1, value=4, step=1, key="pn_tam")
-            pn_loi_ai = st.text_input("Lỗi do ai (Tên NV / Tổ ép panel)", key="pn_loi_ai").strip()
-            pn_ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN, key="pn_nn")
-            pn_ly_do_chi_tiet = st.text_area("Ghi chú chi tiết", key="pn_note") if pn_ly_do_chon == "Lỗi khác" else ""
+    
+    col_pn1, col_pn2, col_pn3 = st.columns(3)
+    with col_pn1:
+        ngay_loi_pn = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="pn_ngay")
+        pn_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pn_kho")
+        pn_don = st.text_input("Mã đơn hàng (không có thì bỏ trống)", key="pn_don").strip()
+        pn_vi_tri = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="pn_vt")
+    with col_pn2:
+        pn_hang = st.text_input("Hãng tôn mặt ngoài *", key="pn_hang").strip()
+        # Thêm 1 ô lựa chọn độ dày tôn sau ô Hãng tôn mặt ngoài
+        pn_day_ton = st.number_input("Độ dày tôn mặt ngoài (dem/mm) *", value=0.40, step=0.05, key="pn_day_ton")
+        # Màu sắc có 2 loại: Trắng, Vân gỗ
+        pn_mau = st.selectbox("Màu sắc tôn mặt", DANH_SACH_MAU_PANEL, key="pn_mau")
+        pn_core = st.selectbox("Độ dày Panel", DANH_SACH_DO_DAY_PANEL, key="pn_core")
+        pn_kho_ton = st.selectbox("Khổ tôn Panel", DANH_SACH_KHO_PANEL, key="pn_kho_ton")
+    with col_pn3:
+        pn_xop_quy_cach = st.selectbox("Quy cách xốp lõi", DANH_SACH_XOP_PANEL, key="pn_xop")
+        pn_dai = st.number_input("Chiều dài 1 tấm (m)", value=5.0, step=0.1, key="pn_dai")
+        pn_so_tam = st.number_input("Số tấm", min_value=1, value=4, step=1, key="pn_tam")
+        pn_loi_ai = st.text_input("Lỗi do ai (Tên NV / Tổ ép panel)", key="pn_loi_ai").strip()
+        
+        # Bổ sung lỗi "Không đủ thân máy"
+        pn_ly_do_chon = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN_PANEL, key="pn_nn")
+        
+        # Đồng thời lựa chọn lỗi khác thì xuất hiện thêm ô nhập tay chi tiết lỗi
+        pn_ly_do_chi_tiet = ""
+        if pn_ly_do_chon == "Lỗi khác":
+            pn_ly_do_chi_tiet = st.text_area("Nhập chi tiết lỗi khác *", placeholder="Ghi rõ mô tả lỗi tại đây...", key="pn_note")
 
-        btn_luu_panel = st.form_submit_button("💾 Lưu tấm Panel lỗi vào kho", type="primary")
-
-    if btn_luu_panel:
+    st.write("")
+    if st.button("💾 Lưu tấm Panel lỗi vào kho", type="primary", key="btn_luu_panel_act"):
         if not pn_hang:
-            st.warning("⚠️ Vui lòng điền Hãng tôn!")
+            st.warning("⚠️ Vui lòng điền Hãng tôn mặt ngoài!")
+        elif pn_ly_do_chon == "Lỗi khác" and not pn_ly_do_chi_tiet.strip():
+            st.warning("⚠️ Đã chọn 'Lỗi khác', vui lòng điền chi tiết lỗi vào ô nhập tay!")
         else:
             he_so_rong = 1.02 if "1020" in pn_kho_ton else 1.17
             pn_tong_m = pn_dai * pn_so_tam
             pn_tong_m2 = pn_tong_m * he_so_rong
             ma_pn_luu = pn_don if pn_don else "Không có"
             pn_nguyen_nhan_luu = f"Lỗi khác: {pn_ly_do_chi_tiet.strip()}" if pn_ly_do_chon == "Lỗi khác" else pn_ly_do_chon
+            
             with engine.connect() as conn:
                 conn.execute(text("""
-                INSERT INTO panel_inventory (ngay_loi, source_warehouse, vi_tri_de, order_code, brand, color, 
+                INSERT INTO panel_inventory (ngay_loi, source_warehouse, vi_tri_de, order_code, brand, steel_thickness, color, 
                                              core_thickness, kho_ton, foam_type, sheet_length, 
                                              current_sheets, total_meters, remaining_meters, total_area_m2, 
                                              is_matched, reason, fault_by)
-                VALUES (:nl, :wh, :vt, :oc, :br, :co, :ct, :kt, :fo, :sl, :cs, :tm, :rm, :ta, 'Chưa ghép', :re, :fb)
+                VALUES (:nl, :wh, :vt, :oc, :br, :st, :co, :ct, :kt, :fo, :sl, :cs, :tm, :rm, :ta, 'Chưa ghép', :re, :fb)
                 """), {
-                    "nl": ngay_loi_pn, "wh": pn_kho, "vt": pn_vi_tri, "oc": ma_pn_luu, "br": pn_hang, "co": pn_mau,
-                    "ct": pn_core, "kt": pn_kho_ton, "fo": pn_xop_quy_cach, "sl": pn_dai,
+                    "nl": ngay_loi_pn, "wh": pn_kho, "vt": pn_vi_tri, "oc": ma_pn_luu, "br": pn_hang, "st": pn_day_ton, 
+                    "co": pn_mau, "ct": pn_core, "kt": pn_kho_ton, "fo": pn_xop_quy_cach, "sl": pn_dai,
                     "cs": pn_so_tam, "tm": pn_tong_m, "rm": pn_tong_m, "ta": pn_tong_m2, 
                     "re": pn_nguyen_nhan_luu, "fb": pn_loi_ai
                 })
                 conn.commit()
             st.cache_data.clear()
-            st.session_state.msg_success = f"✅ Đã lưu thành công {pn_so_tam} tấm Panel ({pn_tong_m2:.2f} m²) vào kho!"
+            st.session_state.msg_success = f"✅ Đã lưu thành công {pn_so_tam} tấm Panel {pn_hang} - Dày tôn {pn_day_ton}mm - Màu {pn_mau} ({pn_tong_m2:.2f} m²) vào kho!"
             st.rerun()
 
 # =============================================================
@@ -1044,7 +1061,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                 q_pn_hang = st.text_input("Hãng tôn mặt Panel", key="q_pn_hang").strip()
                 q_pn_core = st.selectbox("Độ dày Panel", ["Tất cả"] + DANH_SACH_DO_DAY_PANEL, key="q_pn_core")
             with pn_c2:
-                q_pn_mau = st.text_input("Màu sắc tôn mặt", key="q_pn_mau").strip()
+                q_pn_mau = st.selectbox("Màu sắc tôn mặt", ["Tất cả"] + DANH_SACH_MAU_PANEL, key="q_pn_mau")
                 q_pn_kho = st.selectbox("Khổ tôn yêu cầu", ["Tất cả"] + DANH_SACH_KHO_PANEL, key="q_pn_kho")
             with pn_c3:
                 q_pn_dai = st.number_input("Chiều dài tối thiểu (m)", value=2.0, step=0.1, key="q_pn_dai")
@@ -1066,8 +1083,8 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                 df_pn_matched = df_pn_all[df_pn_all["Dài 1 tấm (m)"] >= pn_p["dai"]].copy()
                 if pn_p["hang"]:
                     df_pn_matched = df_pn_matched[df_pn_matched["Hãng tôn"].apply(lambda x: xoa_dau_tieng_viet(pn_p["hang"]) in xoa_dau_tieng_viet(x))]
-                if pn_p["mau"]:
-                    df_pn_matched = df_pn_matched[df_pn_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(pn_p["mau"]) in xoa_dau_tieng_viet(x))]
+                if pn_p["mau"] != "Tất cả":
+                    df_pn_matched = df_pn_matched[df_pn_matched["Màu"] == pn_p["mau"]]
                 if pn_p["core"] != "Tất cả":
                     df_pn_matched = df_pn_matched[df_pn_matched["Độ dày Panel"] == pn_p["core"]]
                 if pn_p["kho"] != "Tất cả":
@@ -1104,10 +1121,13 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                 pn_m_con = pn_tam_con * float(r_pn['Dài 1 tấm (m)'])
                                 pn_m2_con = pn_m_con * he_so
                                 with engine.connect() as conn:
-                                    conn.execute(text("UPDATE panel_inventory SET current_sheets = :tc, total_meters = :mc, total_area_m2 = :m2c WHERE id = :id"),
-                                                 {"tc": pn_tam_con, "mc": pn_m_con, "m2c": pn_m2_con, "id": pn_id_chon})
-                                    conn.execute(text("INSERT INTO panel_matching_history (panel_id, new_order_code, matched_sheets, matched_meters, matched_m2, matched_by) VALUES (:pid, :od, :ms, :mm, :m2, :mb)"),
-                                                 {"pid": pn_id_chon, "od": pn_don_moi, "ms": pn_tam_lay, "mm": pn_m_lay, "m2": pn_m2_lay, "mb": pn_nguoi_lay})
+                                    conn.execute(text("""
+                                        UPDATE panel_inventory SET current_sheets = :tc, total_meters = :mc, total_area_m2 = :m2c WHERE id = :id
+                                    """), {"tc": pn_tam_con, "mc": pn_m_con, "m2c": pn_m2_con, "id": pn_id_chon})
+                                    conn.execute(text("""
+                                        INSERT INTO panel_matching_history (panel_id, new_order_code, matched_sheets, matched_meters, matched_m2, matched_by) 
+                                        VALUES (:pid, :od, :ms, :mm, :m2, :mb)
+                                    """), {"pid": pn_id_chon, "od": pn_don_moi, "ms": pn_tam_lay, "mm": pn_m_lay, "m2": pn_m2_lay, "mb": pn_nguoi_lay})
                                     conn.commit()
                                 st.cache_data.clear()
                                 del st.session_state.pn_search_params

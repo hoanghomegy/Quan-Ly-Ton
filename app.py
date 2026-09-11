@@ -341,7 +341,6 @@ if "msg_success" in st.session_state:
     st.toast(st.session_state.msg_success, icon="✅")
     del st.session_state.msg_success
 
-# Quản lý số dòng quy cách động cho từng mục nhập lỗi
 if "num_specs_ton" not in st.session_state:
     st.session_state.num_specs_ton = 1
 if "num_specs_pk" not in st.session_state:
@@ -453,7 +452,7 @@ if st.session_state.user is not None:
 lua_chon = st.sidebar.radio("Chức năng:", menu_options)
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO
+# 1. TRA CỨU TỒN KHO (ĐÃ BỔ SUNG BỘ LỌC ĐA CỘT THEO ẢNH YÊU CẦU)
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     tab_ton, tab_pk, tab_pn = st.tabs(["📦 Tồn kho Tôn lỗi", "🛠️ Tồn kho Phụ kiện", "🧱 Tồn kho Panel"])
@@ -462,21 +461,63 @@ if lua_chon == "📋 Tra cứu tồn kho":
     with tab_ton:
         st.subheader("📋 Danh mục Tôn lỗi tồn kho")
         
-        col_f1, col_f2, col_f3 = st.columns([3, 3, 4])
-        with col_f1:
-            loc_hang = st.selectbox("🔍 Lọc nhanh theo Hãng tôn:", ["Tất cả"] + DANH_SACH_HANG_TON, key="filter_hang_ton")
-        with col_f2:
-            loc_mau = st.text_input("🔍 Lọc nhanh theo Màu sắc:", placeholder="Ví dụ: Đen, Xanh, Trắng...", key="filter_mau_ton").strip()
-        with col_f3:
-            st.write("")
-            st.caption("💡 *Đã bổ sung cột **Phế (m)** và **Độ dài ghép được (m)**.*")
+        # --- BỘ LỌC NÂNG CAO TỔNG HỢP CHO TẤT CẢ CÁC CỘT ĐÃ KHOANH ĐỎ ---
+        with st.expander("🔍 BỘ LỌC TÌM KIẾM NHANH (LỌC THEO CÁC CỘT TRÊN BẢNG)", expanded=True):
+            r1_c1, r1_c2, r1_c3, r1_c4, r1_c5 = st.columns(5)
+            with r1_c1:
+                f_kho = st.selectbox("Kho lưu:", ["Tất cả", "Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="fl_ton_kho")
+            with r1_c2:
+                f_vitri = st.selectbox("Vị trí để:", ["Tất cả"] + DANH_SACH_VI_TRI, key="fl_ton_vt")
+            with r1_c3:
+                f_madon = st.text_input("Mã đơn hàng:", placeholder="Tìm mã đơn...", key="fl_ton_md").strip()
+            with r1_c4:
+                f_hang = st.selectbox("Hãng tôn:", ["Tất cả"] + DANH_SACH_HANG_TON, key="fl_ton_hang")
+            with r1_c5:
+                f_mau = st.text_input("Màu sắc:", placeholder="Ví dụ: Đỏ, Đen, Xanh...", key="fl_ton_mau").strip()
+                
+            r2_c1, r2_c2, r2_c3, r2_c4, r2_c5 = st.columns(5)
+            with r2_c1:
+                f_day = st.number_input("Độ dày tối thiểu (≥ mm):", value=0.0, step=0.05, key="fl_ton_day")
+            with r2_c2:
+                f_song = st.selectbox("Loại sóng:", ["Tất cả"] + DANH_SACH_SONG, key="fl_ton_song")
+            with r2_c3:
+                f_loai = st.selectbox("Loại tôn:", ["Tất cả"] + DANH_SACH_LOAI_TON, key="fl_ton_loai")
+            with r2_c4:
+                f_xop = st.selectbox("Quy cách xốp/ngói:", ["Tất cả"] + DANH_SACH_XOP, key="fl_ton_xop")
+            with r2_c5:
+                f_trangthai = st.selectbox("Trạng thái ghép:", ["Tất cả"] + DANH_SACH_TRANG_THAI_TON_PANEL, key="fl_ton_tt")
+
+            r3_c1, r3_c2 = st.columns([2, 8])
+            with r3_c1:
+                f_dai = st.number_input("Chiều dài tối thiểu (≥ m):", value=0.0, step=0.1, key="fl_ton_dai")
+            with r3_c2:
+                st.write("")
 
         df_ton = load_ton_data()
         
-        if loc_hang != "Tất cả":
-            df_ton = df_ton[df_ton["Hãng"] == loc_hang]
-        if loc_mau:
-            df_ton = df_ton[df_ton["Màu"].apply(lambda x: xoa_dau_tieng_viet(loc_mau) in xoa_dau_tieng_viet(x))]
+        # ÁP DỤNG BỘ LỌC TỰ ĐỘNG
+        if f_kho != "Tất cả":
+            df_ton = df_ton[df_ton["Kho"] == f_kho]
+        if f_vitri != "Tất cả":
+            df_ton = df_ton[df_ton["Vị trí"] == f_vitri]
+        if f_madon:
+            df_ton = df_ton[df_ton["Mã đơn"].apply(lambda x: xoa_dau_tieng_viet(f_madon) in xoa_dau_tieng_viet(x))]
+        if f_hang != "Tất cả":
+            df_ton = df_ton[df_ton["Hãng"] == f_hang]
+        if f_mau:
+            df_ton = df_ton[df_ton["Màu"].apply(lambda x: xoa_dau_tieng_viet(f_mau) in xoa_dau_tieng_viet(x))]
+        if f_day > 0:
+            df_ton = df_ton[df_ton["Dày (mm)"].round(2) >= round(f_day, 2)]
+        if f_song != "Tất cả":
+            df_ton = df_ton[df_ton["Sóng"] == f_song]
+        if f_loai != "Tất cả":
+            df_ton = df_ton[df_ton["Loại tôn"] == f_loai]
+        if f_xop != "Tất cả":
+            df_ton = df_ton[df_ton["Quy cách xốp/ngói"] == f_xop]
+        if f_trangthai != "Tất cả":
+            df_ton = df_ton[df_ton["Hàng đã xử lý ghép"] == f_trangthai]
+        if f_dai > 0:
+            df_ton = df_ton[df_ton["Dài (m)"] >= f_dai]
 
         edited_ton = st.data_editor(
             df_ton,
@@ -1281,7 +1322,6 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
             df_all_ton = df_all_ton[df_all_ton["Số tấm còn"] > 0]
 
             if not df_all_ton.empty:
-                # Quét dựa trên độ dài ghép được (hữu dụng)
                 df_matched = df_all_ton[df_all_ton["Độ dài ghép được (m)"] >= p["dai"]].copy()
                 df_matched = df_matched[df_matched["Dày (mm)"].round(2) >= round(p["day"], 2)]
 

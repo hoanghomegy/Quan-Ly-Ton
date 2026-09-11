@@ -344,10 +344,11 @@ if st.session_state.user is None and "u" in st.query_params:
     if res and res[3] == 1:
         st.session_state.user = {"username": res[0], "name": res[1], "role": res[2]}
 
-if "msg_success" in st.session_state:
-    st.success(st.session_state.msg_success)
-    st.toast(st.session_state.msg_success, icon="✅")
-    del st.session_state.msg_success
+# SỬA LỖI BÁO LẶP: Lấy và xóa ngay lập tức khỏi session_state trong 1 dòng lệnh
+msg_flash = st.session_state.pop("msg_success", None)
+if msg_flash:
+    st.success(msg_flash)
+    st.toast(msg_flash, icon="✅")
 
 if "num_specs_ton" not in st.session_state:
     st.session_state.num_specs_ton = 1
@@ -460,7 +461,7 @@ if st.session_state.user is not None:
 lua_chon = st.sidebar.radio("Chức năng:", menu_options)
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO (FIX TRIỆT ĐỂ LỖI TỰ LƯU VÀ LAG)
+# 1. TRA CỨU TỒN KHO
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     da_dang_nhap = st.session_state.user is not None
@@ -571,7 +572,6 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_t1, col_t2 = st.columns([3, 7])
             with col_t1:
-                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
                 save_clicked_ton = st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary", key="btn_save_ton_manual")
                 if save_clicked_ton:
                     co_loi_chua_dien_don = False
@@ -635,7 +635,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
                                 })
                             conn.commit()
                         st.cache_data.clear()
-                        st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Tôn thành công!"
+                        st.session_state["msg_success"] = "Đã lưu toàn bộ thay đổi bảng Tôn thành công!"
                         st.rerun()
 
             # --- CÔNG CỤ GHÉP ĐƠN NHIỀU KÍCH THƯỚC ---
@@ -766,26 +766,29 @@ if lua_chon == "📋 Tra cứu tồn kho":
 
                                 st.cache_data.clear()
                                 st.session_state.so_dong_kich_thuoc = 1
-                                st.session_state.msg_success = f"✅ Đã ghép {tong_met_da_ghep:.2f}m vào đơn {mota_don_luu}! Tồn còn lại: {met_ton_moi:.2f}m | Phế phát sinh: {met_phe_moi:.2f}m."
+                                st.session_state["msg_success"] = f"✅ Đã ghép {tong_met_da_ghep:.2f}m vào đơn {mota_don_luu}! Tồn còn lại: {met_ton_moi:.2f}m | Phế phát sinh: {met_phe_moi:.2f}m."
                                 st.rerun()
                 else:
                     st.info("Hiện không có lô tôn nào có mét tồn > 0 để ghép.")
 
+            # KHẮC PHỤC TRIỆT ĐỂ LỖI XÓA LẶP: Đặt key riêng và xóa cờ sau khi xóa thành công
             if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_ton.empty:
                 with st.expander("🗑️ Xóa dòng Tôn bị nhập sai"):
                     c_del1, c_del2 = st.columns([3, 2])
                     with c_del1:
-                        id_del_ton = st.selectbox("Chọn ID cần xóa:", df_ton['id'].tolist(), key="del_ton_sel")
+                        id_del_ton = st.selectbox("Chọn ID cần xóa:", df_ton['id'].tolist(), key="del_ton_sel_box")
                     with c_del2:
                         st.write("")
                         st.write("")
-                        if st.button("❌ Xóa dòng này", key="btn_del_ton"):
+                        btn_del_ton_exec = st.button("❌ Xóa dòng này", key="btn_del_ton_execute")
+                        if btn_del_ton_exec:
+                            target_del_id = int(id_del_ton)
                             with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM inventory WHERE id = :id"), {"id": int(id_del_ton)})
-                            conn.commit()
-                        st.cache_data.clear()
-                        st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Tôn ID {id_del_ton}!"
-                        st.rerun()
+                                conn.execute(text("DELETE FROM inventory WHERE id = :id"), {"id": target_del_id})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Tôn ID {target_del_id}!"
+                            st.rerun()
 
     # 1.2 TỒN KHO PHỤ KIỆN
     with tab_pk:
@@ -826,7 +829,6 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_pk_btn1, col_pk_btn2 = st.columns([3, 7])
             with col_pk_btn1:
-                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
                 save_clicked_pk = st.button("💾 Lưu thay đổi trên bảng Phụ kiện", type="primary", key="btn_save_pk_manual")
                 if save_clicked_pk:
                     with engine.connect() as conn:
@@ -882,24 +884,26 @@ if lua_chon == "📋 Tra cứu tồn kho":
                         })
                     conn.commit()
                     st.cache_data.clear()
-                    st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Phụ kiện thành công!"
+                    st.session_state["msg_success"] = "Đã lưu toàn bộ thay đổi bảng Phụ kiện thành công!"
                     st.rerun()
 
             if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_pk.empty:
                 with st.expander("🗑️ Xóa dòng Phụ kiện bị nhập sai"):
                     c_del_pk1, c_del_pk2 = st.columns([3, 2])
                     with c_del_pk1:
-                        id_del_pk = st.selectbox("Chọn ID Phụ kiện cần xóa:", df_pk['id'].tolist(), key="del_pk_sel")
+                        id_del_pk = st.selectbox("Chọn ID Phụ kiện cần xóa:", df_pk['id'].tolist(), key="del_pk_sel_box")
                     with c_del_pk2:
                         st.write("")
                         st.write("")
-                        if st.button("❌ Xóa dòng này", key="btn_del_pk"):
+                        btn_del_pk_exec = st.button("❌ Xóa dòng này", key="btn_del_pk_execute")
+                        if btn_del_pk_exec:
+                            target_del_pk = int(id_del_pk)
                             with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM accessory_inventory WHERE id = :id"), {"id": int(id_del_pk)})
-                            conn.commit()
-                        st.cache_data.clear()
-                        st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Phụ kiện ID {id_del_pk}!"
-                        st.rerun()
+                                conn.execute(text("DELETE FROM accessory_inventory WHERE id = :id"), {"id": target_del_pk})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Phụ kiện ID {target_del_pk}!"
+                            st.rerun()
 
     # 1.3 TỒN KHO PANEL
     with tab_pn:
@@ -944,7 +948,6 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_pn_btn1, col_pn_btn2 = st.columns([3, 7])
             with col_pn_btn1:
-                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
                 save_clicked_pn = st.button("💾 Lưu thay đổi trên bảng Panel", type="primary", key="btn_save_pn_manual")
                 if save_clicked_pn:
                     co_loi_chua_dien_don_pn = False
@@ -1010,24 +1013,26 @@ if lua_chon == "📋 Tra cứu tồn kho":
                                 })
                             conn.commit()
                         st.cache_data.clear()
-                        st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Panel thành công!"
+                        st.session_state["msg_success"] = "Đã lưu toàn bộ thay đổi bảng Panel thành công!"
                         st.rerun()
 
             if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_pn.empty:
                 with st.expander("🗑️ Xóa dòng Panel bị nhập sai"):
                     c_del_pn1, c_del_pn2 = st.columns([3, 2])
                     with c_del_pn1:
-                        id_del_pn = st.selectbox("Chọn ID Panel cần xóa:", df_pn['id'].tolist(), key="del_pn_sel")
+                        id_del_pn = st.selectbox("Chọn ID Panel cần xóa:", df_pn['id'].tolist(), key="del_pn_sel_box")
                     with c_del_pn2:
                         st.write("")
                         st.write("")
-                        if st.button("❌ Xóa dòng này", key="btn_del_pn"):
+                        btn_del_pn_exec = st.button("❌ Xóa dòng này", key="btn_del_pn_execute")
+                        if btn_del_pn_exec:
+                            target_del_pn = int(id_del_pn)
                             with engine.connect() as conn:
-                                conn.execute(text("DELETE FROM panel_inventory WHERE id = :id"), {"id": int(id_del_pn)})
-                            conn.commit()
-                        st.cache_data.clear()
-                        st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Panel ID {id_del_pn}!"
-                        st.rerun()
+                                conn.execute(text("DELETE FROM panel_inventory WHERE id = :id"), {"id": target_del_pn})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Panel ID {target_del_pn}!"
+                            st.rerun()
 
 # =============================================================
 # 2. ➕ NHẬP LỖI TÔN
@@ -1118,7 +1123,7 @@ elif lua_chon == "➕ Nhập lỗi Tôn":
                 conn.commit()
             st.cache_data.clear()
             st.session_state.num_specs_ton = 1
-            st.session_state.msg_success = f"✅ Đã lưu thành công {len(specs_ton_data)} quy cách lô Tôn {hang_luu} - Màu {mau_ton} vào kho!"
+            st.session_state["msg_success"] = f"✅ Đã lưu thành công {len(specs_ton_data)} quy cách lô Tôn {hang_luu} - Màu {mau_ton} vào kho!"
             st.rerun()
 
 # =============================================================
@@ -1243,7 +1248,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                 conn.commit()
             st.cache_data.clear()
             st.session_state.num_specs_pk = 1
-            st.session_state.msg_success = f"✅ Đã lưu thành công {len(specs_pk_data)} quy cách phụ kiện {pk_ten} vào hệ thống!"
+            st.session_state["msg_success"] = f"✅ Đã lưu thành công {len(specs_pk_data)} quy cách phụ kiện {pk_ten} vào hệ thống!"
             st.rerun()
 
 # =============================================================
@@ -1342,7 +1347,7 @@ elif lua_chon == "➕ Nhập lỗi Panel":
                 conn.commit()
             st.cache_data.clear()
             st.session_state.num_specs_pn = 1
-            st.session_state.msg_success = f"✅ Đã lưu thành công {len(specs_pn_data)} quy cách tấm Panel {pn_hang} - Màu {pn_mau} vào kho!"
+            st.session_state["msg_success"] = f"✅ Đã lưu thành công {len(specs_pn_data)} quy cách tấm Panel {pn_hang} - Màu {pn_mau} vào kho!"
             st.rerun()
 
 # =============================================================
@@ -1466,7 +1471,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                         conn.commit()
                                     st.cache_data.clear()
                                     del st.session_state.ton_search_params
-                                    st.session_state.msg_success = f"✅ Đã ghép thành công {tam_ghep_int} tấm ({met_ghep:.2f}m) vào đơn {ma_moi}! Vị trí {r_target['Vị trí']} còn lại {tam_con} tấm ({met_con:.2f}m)."
+                                    st.session_state["msg_success"] = f"✅ Đã ghép thành công {tam_ghep_int} tấm ({met_ghep:.2f}m) vào đơn {ma_moi}! Vị trí {r_target['Vị trí']} còn lại {tam_con} tấm ({met_con:.2f}m)."
                                     st.rerun()
                     else:
                         st.warning("⚠️ Có lô phù hợp kích thước nhưng cấp xốp mềm hơn yêu cầu!")
@@ -1566,7 +1571,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                 conn.commit()
                                 st.cache_data.clear()
                                 del st.session_state.pk_search_params
-                                st.session_state.msg_success = f"✅ Đã trừ thành công {pk_tam_lay_int} tấm {r_pk['Loại phụ kiện']} vào đơn {pk_don_moi}! Còn lại {pk_tam_con} tấm."
+                                st.session_state["msg_success"] = f"✅ Đã trừ thành công {pk_tam_lay_int} tấm {r_pk['Loại phụ kiện']} vào đơn {pk_don_moi}! Còn lại {pk_tam_con} tấm."
                                 st.rerun()
                 else:
                     st.info("Không có phụ kiện nào thỏa mãn điều kiện yêu cầu.")
@@ -1656,7 +1661,7 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                                     conn.commit()
                                 st.cache_data.clear()
                                 del st.session_state.pn_search_params
-                                st.session_state.msg_success = f"✅ Đã trừ thành công {pn_tam_lay_int} tấm Panel vào đơn {pn_don_moi}! Còn lại {pn_tam_con} tấm ({pn_m2_con:.2f} m²)."
+                                st.session_state["msg_success"] = f"✅ Đã trừ thành công {pn_tam_lay_int} tấm Panel vào đơn {pn_don_moi}! Còn lại {pn_tam_con} tấm ({pn_m2_con:.2f} m²)."
                                 st.rerun()
                 else:
                     st.info("Không có tấm Panel nào trong kho thỏa mãn tiêu chí.")
@@ -1839,7 +1844,7 @@ elif lua_chon == "👑 Phê duyệt & Cấp quyền tài khoản":
                         conn.execute(text("UPDATE users SET is_approved = 1, role = :r WHERE id = :id"), {"r": assigned_role, "id": int(row['id'])})
                         conn.commit()
                     st.cache_data.clear()
-                    st.session_state.msg_success = f"Đã duyệt cấp quyền cho nhân viên {row['full_name']} thành công!"
+                    st.session_state["msg_success"] = f"Đã duyệt cấp quyền cho nhân viên {row['full_name']} thành công!"
                     st.rerun()
             st.divider()
     else:

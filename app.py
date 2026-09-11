@@ -247,7 +247,6 @@ DANH_SACH_XOP = ["Không xốp", "Xốp Eco", "Xốp G8", "Xốp G7", "Xốp G*"
 DANH_SACH_VI_TRI = ["KV_Cán tôn 1L", "KV_Cán tôn 3L", "KV_Xốp 3L", "KV_PK", "KV_Panel"]
 DANH_SACH_NGUYEN_NHAN_CHUNG = ["Đuôi cuộn", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
 DANH_SACH_NGUYEN_NHAN_PANEL = ["Đuôi cuộn", "Không đủ thân máy", "NV_cắt sai", "Lỗi xước sơn", "Lỗi máy", "Lỗi cuộn NVL", "Lỗi sai kích thước", "Lỗi khác"]
-# Bổ sung U, V, T, H vào danh mục Phụ kiện theo yêu cầu
 DANH_SACH_PHU_KIEN = ["Máng", "Sườn", "Xối", "Nóc", "U", "V", "T", "H"]
 DANH_SACH_DO_DAY_PANEL = ["5cm (50mm)", "7.5cm (75mm)", "10cm (100mm)"]
 DANH_SACH_KHO_PANEL = ["Khổ nhỏ 1020mm", "Khổ to 1170mm"]
@@ -461,7 +460,7 @@ if st.session_state.user is not None:
 lua_chon = st.sidebar.radio("Chức năng:", menu_options)
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO
+# 1. TRA CỨU TỒN KHO (FIX TRIỆT ĐỂ LỖI TỰ LƯU VÀ LAG)
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     da_dang_nhap = st.session_state.user is not None
@@ -572,7 +571,9 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_t1, col_t2 = st.columns([3, 7])
             with col_t1:
-                if st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary", key="btn_save_ton"):
+                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
+                save_clicked_ton = st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary", key="btn_save_ton_manual")
+                if save_clicked_ton:
                     co_loi_chua_dien_don = False
                     for idx, r in edited_ton.iterrows():
                         if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) and not str(r["Đơn hàng ghép"]).strip():
@@ -781,10 +782,10 @@ if lua_chon == "📋 Tra cứu tồn kho":
                         if st.button("❌ Xóa dòng này", key="btn_del_ton"):
                             with engine.connect() as conn:
                                 conn.execute(text("DELETE FROM inventory WHERE id = :id"), {"id": int(id_del_ton)})
-                                conn.commit()
-                            st.cache_data.clear()
-                            st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Tôn ID {id_del_ton}!"
-                            st.rerun()
+                            conn.commit()
+                        st.cache_data.clear()
+                        st.session_state.msg_success = f"Đã xóa vĩnh viễn dòng Tôn ID {id_del_ton}!"
+                        st.rerun()
 
     # 1.2 TỒN KHO PHỤ KIỆN
     with tab_pk:
@@ -825,7 +826,9 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_pk_btn1, col_pk_btn2 = st.columns([3, 7])
             with col_pk_btn1:
-                if st.button("💾 Lưu thay đổi trên bảng Phụ kiện", type="primary", key="btn_save_pk"):
+                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
+                save_clicked_pk = st.button("💾 Lưu thay đổi trên bảng Phụ kiện", type="primary", key="btn_save_pk_manual")
+                if save_clicked_pk:
                     with engine.connect() as conn:
                         for idx, r in edited_pk.iterrows():
                             row_id_pk = int(r["id"])
@@ -878,9 +881,9 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             "id": row_id_pk
                         })
                     conn.commit()
-                st.cache_data.clear()
-                st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Phụ kiện thành công!"
-                st.rerun()
+                    st.cache_data.clear()
+                    st.session_state.msg_success = "Đã lưu toàn bộ thay đổi bảng Phụ kiện thành công!"
+                    st.rerun()
 
             if st.session_state.user and st.session_state.user['role'] == 'admin' and not df_pk.empty:
                 with st.expander("🗑️ Xóa dòng Phụ kiện bị nhập sai"):
@@ -941,7 +944,9 @@ if lua_chon == "📋 Tra cứu tồn kho":
         if da_dang_nhap:
             col_pn_btn1, col_pn_btn2 = st.columns([3, 7])
             with col_pn_btn1:
-                if st.button("💾 Lưu thay đổi trên bảng Panel", type="primary", key="btn_save_pn"):
+                # ĐẶT KEY RIÊNG BIỆT ĐỂ NÚT BẤM CHỈ KÍCH HOẠT KHI THỰC SỰ ĐƯỢC CLICK
+                save_clicked_pn = st.button("💾 Lưu thay đổi trên bảng Panel", type="primary", key="btn_save_pn_manual")
+                if save_clicked_pn:
                     co_loi_chua_dien_don_pn = False
                     for idx, r in edited_pn.iterrows():
                         if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) and not str(r["Đơn hàng ghép"]).strip():

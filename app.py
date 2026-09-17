@@ -770,7 +770,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CẬP NHẬT TIÊU ĐỀ SL PHUY ĐÃ SX - VỎ PHUY)
+# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (KHỚP CHUẨN XÁC CÔNG THỨC VẬT TƯ)
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)
@@ -789,29 +789,41 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
 
     report_data = []
     for hc in DANH_SACH_HOA_CHAT:
+        kg_std = 250.0 if "ISO" in hc else 220.0
+
+        # 1. TỔNG SL HÓA CHẤT NHẬP KHO (Từ bảng Nhập)
         im_filtered = df_im[df_im["Tên hóa chất"] == hc]
         tong_nhap_phuy = im_filtered["Số phuy"].sum()
         tong_nhap_kg = im_filtered["Tổng Kg"].sum()
 
+        # 2. DỮ LIỆU SẢN XUẤT (Từ Nhật ký SX)
         sx_filtered = df_sx[df_sx["Tên hóa chất"] == hc]
+        
+        # Phuy nguyên đã dùng hết -> biến thành Vỏ phuy (SL Phuy Đã SX)
         sx_phuy_nguyen_count = sx_filtered["Phuy nguyên"].sum()
         sx_phuy_nguyen_kg = sx_filtered["Kg phuy nguyên"].sum()
 
+        # Phuy giở đang khui tại xưởng
         sx_phuy_gio_count = sx_filtered["Phuy giở"].sum()
         sx_phuy_gio_kg = sx_filtered["Kg phuy giở"].sum()
+
+        # Hóa chất trong bồn
         sx_bon_kg = sx_filtered["Kg bồn"].sum()
 
-        sx_phuy_total = sx_phuy_nguyen_count
-        sx_kg_total = sx_phuy_nguyen_kg
+        # 3. TỒN KHO PHUY NGUYÊN THỰC TẾ CHƯA ĐỤNG ĐẾN:
+        # Tồn phuy nguyên = Tổng nhập - (Phuy nguyên đã xuất hết + Phuy đang khui giở)
+        tong_phuy_da_xuat = sx_phuy_nguyen_count + sx_phuy_gio_count
+        ton_phuy_nguyen = max(0.0, tong_nhap_phuy - tong_phuy_da_xuat)
+        ton_kg_phuy_nguyen = ton_phuy_nguyen * kg_std
 
-        ton_phuy_nguyen = max(0.0, tong_nhap_phuy - sx_phuy_nguyen_count)
-        ton_kg_phuy_nguyen = max(0.0, tong_nhap_kg - sx_phuy_nguyen_kg)
-
+        # Phuy giở tồn kho
         ton_phuy_gio = sx_phuy_gio_count
         ton_kg_phuy_gio = sx_phuy_gio_kg
 
+        # H/C trong bồn tồn kho
         ton_bon_kg = sx_bon_kg
 
+        # 4. ĐỊNH MỨC TB NGÀY
         norm_val = norms_map.get(hc, {"phuy": 0.0, "kg": 0.0})
 
         report_data.append({
@@ -822,14 +834,14 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
             "kho_pn_kg": f"{ton_kg_phuy_nguyen:.1f}" if ton_kg_phuy_nguyen > 0 else "",
             "kho_pg_phuy": f"{ton_phuy_gio:.1f}" if ton_phuy_gio > 0 else "",
             "kho_pg_kg": f"{ton_kg_phuy_gio:.1f}" if ton_kg_phuy_gio > 0 else "",
-            "sx_p_phuy": f"{sx_phuy_total:.1f}" if sx_phuy_total > 0 else "",
-            "sx_p_kg": f"{sx_kg_total:.1f}" if sx_kg_total > 0 else "",
+            "sx_p_phuy": f"{sx_phuy_nguyen_count:.1f}" if sx_phuy_nguyen_count > 0 else "",
+            "sx_p_kg": f"{sx_phuy_nguyen_kg:.1f}" if sx_phuy_nguyen_kg > 0 else "",
             "sx_bon_kg": f"{ton_bon_kg:.1f}" if ton_bon_kg > 0 else "",
             "norm_phuy": f"{norm_val['phuy']:.1f}" if norm_val['phuy'] > 0 else "",
             "norm_kg": f"{norm_val['kg']:.1f}" if norm_val['kg'] > 0 else ""
         })
 
-    # ĐỔI TIÊU ĐỀ THÀNH: SL Phuy Đã SX ( Vỏ phuy )
+    # XUẤT BẢNG HTML CHUẨN MERGE HEADER
     table_parts = [
         '<table style="width:100%; border-collapse:collapse; font-family:\'Times New Roman\', serif; text-align:center; font-size:14px; background-color:#fff; color:#000;">',
         '<thead>',

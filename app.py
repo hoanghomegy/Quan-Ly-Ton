@@ -73,6 +73,13 @@ def xoa_dau_tieng_viet(text_input):
     nfkd_form = unicodedata.normalize('NFKD', text_input)
     return "".join([c for c in nfkd_form if not unicodedata.combining(c)]).lower().strip()
 
+# DANH MỤC HÓA CHẤT CHUẨN
+DANH_SACH_HOA_CHAT = [
+    "ISO PM200", "ISO BAYER", "ISO BASF", "ISO MR200",
+    "POLY ORIKEN 2228 H2", "POLY ORIKEN 2230 H2", "POLY ORIKEN 2236 H2", "POLY ORIKEN 2258 H2",
+    "KPX-6685", "POLY RESIN", "DUNG DỊCH MC"
+]
+
 # --- 3. KHỞI TẠO BẢNG & TỰ ĐỘNG CẬP NHẬT CỘT ---
 @st.cache_resource
 def init_database_tables():
@@ -241,6 +248,23 @@ def init_database_tables():
             created_at DATE DEFAULT CURRENT_DATE
         );
         """))
+
+        # Bảng lưu định mức trung bình ngày nhập tay (Ảnh 2)
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS chemical_norm (
+            chemical_name VARCHAR(100) PRIMARY KEY,
+            norm_phuy REAL DEFAULT 0.0,
+            norm_kg REAL DEFAULT 0.0
+        );
+        """))
+
+        # Khởi tạo giá trị định mức mặc định nếu chưa có
+        for hc in DANH_SACH_HOA_CHAT:
+            conn.execute(text("""
+                INSERT INTO chemical_norm (chemical_name, norm_phuy, norm_kg)
+                VALUES (:name, 0.0, 0.0)
+                ON CONFLICT (chemical_name) DO NOTHING;
+            """), {"name": hc})
         
         check_admin = conn.execute(text("SELECT COUNT(*) FROM users WHERE username = 'admin'")).scalar()
         if check_admin == 0:
@@ -269,12 +293,6 @@ DANH_SACH_XOP_PANEL = ["Xốp thường", "Xốp chống cháy"]
 DANH_SACH_MAU_PANEL = ["Trắng", "Vân gỗ"]
 DANH_SACH_TRANG_THAI_PK = ["🔴 Chưa xử lý", "🟢 Đã xử lý", "🟡 Đã xả"]
 DANH_SACH_TRANG_THAI_TON_PANEL = ["🔴 Chưa ghép", "🟢 Đã ghép"]
-
-DANH_SACH_HOA_CHAT = [
-    "ISO PM200", "ISO BAYER", "ISO BASF", "ISO MR200",
-    "POLY ORIKEN 2228 H2", "POLY ORIKEN 2230 H2", "POLY ORIKEN 2236 H2", "POLY ORIKEN 2258 H2",
-    "KPX-6685", "POLY RESIN ( KEO E )", "DUNG DỊCH MC"
-]
 
 # --- 4. BỘ HÀM TẢI DỮ LIỆU ---
 @st.cache_data(ttl=2)
@@ -343,7 +361,6 @@ def load_panel_data():
             FROM panel_inventory ORDER BY id DESC
         """), conn)
 
-# Dữ liệu hóa chất có chuẩn hóa tên cột cho data_editor
 @st.cache_data(ttl=2)
 def load_chemical_import():
     with engine.connect() as conn:
@@ -364,6 +381,11 @@ def load_chemical_production():
                    total_kg as "Tổng Kg", operator_name as "Người ghi"
             FROM chemical_production_log ORDER BY id DESC
         """), conn)
+
+@st.cache_data(ttl=2)
+def load_chemical_norms():
+    with engine.connect() as conn:
+        return pd.read_sql(text("SELECT chemical_name as \"Chủng loại\", norm_phuy as \"Định mức Phuy\", norm_kg as \"Định mức Kg\" FROM chemical_norm"), conn)
 
 # --- 5. DUY TRÌ ĐĂNG NHẬP VĨNH VIỄN ---
 if "user" not in st.session_state:
@@ -575,7 +597,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
 
     st.markdown("---")
     st.subheader("📋 Lịch sử các đợt nhập kho gần nhất (Có thể sửa trực tiếp)")
-    st.caption("💡 *Click đúp chuột vào bất kỳ ô nào nhập sai để sửa lại số phuy, kg, ngày hoặc ghi chú rồi bấm **Lưu thay đổi**.*")
+    st.caption("💡 *Click đúp chuột vào bất kỳ ô nào nhập sai để sửa lại rồi bấm **Lưu thay đổi**.*")
     
     df_im_hc = load_chemical_import()
     if not df_im_hc.empty:
@@ -599,7 +621,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                     for idx, r in edited_im_hc.iterrows():
                         p_cnt = safe_float(r["Số phuy"])
                         k_per = safe_float(r["Kg/Phuy"])
-                        tot_k = float(p_cnt * k_per) # Tự động tính lại tổng kg nếu sửa phuy
+                        tot_k = float(p_cnt * k_per)
                         conn.execute(text("""
                             UPDATE chemical_import
                             SET import_date = :dt, chemical_name = :name, phuy_count = :phuy,
@@ -615,7 +637,6 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                 st.session_state["msg_success"] = "Đã cập nhật thay đổi lịch sử nhập kho hóa chất thành công!"
                 st.rerun()
                 
-        # Mục xóa nếu nhập sai hoàn toàn
         with st.expander("🗑️ Xóa dòng nhập kho bị sai"):
             c_del_im1, c_del_im2 = st.columns([3, 2])
             with c_del_im1:
@@ -755,30 +776,38 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CHUẨN HÓA CÔNG THỨC KHỚP SỐ LIỆU - ẢNH 3)
+# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CẤU TRÚC CHUẨN ẢNH 1 & NHẬP TAY ẢNH 2)
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
-    st.title("🧪 TỒN KHO HÓA CHẤT CHƯƠNG MỸ")
-    st.caption("Cân đối chính xác giữa Nhập kho thực tế, Tồn kho hiện có và Lượng đã xuất dùng sản xuất.")
+    st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)
+    st.caption("<div style='text-align: center;'>Biểu mẫu tổng hợp số liệu nhập - tồn thực tế và định mức sản xuất.</div>", unsafe_allow_html=True)
 
     df_im = load_chemical_import()
     df_sx = load_chemical_production()
+    df_norms = load_chemical_norms()
 
-    report_rows = []
+    # Tạo map tra cứu định mức nhập tay
+    norms_map = {}
+    for idx, r in df_norms.iterrows():
+        norms_map[r["Chủng loại"]] = {
+            "phuy": safe_float(r["Định mức Phuy"]),
+            "kg": safe_float(r["Định mức Kg"])
+        }
+
+    report_data = []
     for hc in DANH_SACH_HOA_CHAT:
         kg_std = 250.0 if "ISO" in hc else 220.0
 
-        # 1. TỔNG SL HÓA CHẤT NHẬP KHO (Lấy chuẩn từ bảng Nhập Kho - Ảnh 3)
+        # 1. TỔNG SL HÓA CHẤT NHẬP KHO (Chính xác từ bảng Nhập)
         im_filtered = df_im[df_im["Tên hóa chất"] == hc]
         tong_nhap_phuy = im_filtered["Số phuy"].sum()
         tong_nhap_kg = im_filtered["Tổng Kg"].sum()
 
-        # 2. SL HÓA CHẤT ĐÃ XUẤT SẢN XUẤT (Lấy từ Nhật ký SX)
+        # 2. DỮ LIỆU SẢN XUẤT
         sx_filtered = df_sx[df_sx["Tên hóa chất"] == hc]
         sx_phuy_nguyen_count = sx_filtered["Phuy nguyên"].sum()
         sx_phuy_nguyen_kg = sx_filtered["Kg phuy nguyên"].sum()
 
-        # Phuy giở và bồn là lượng đang dở dang tại xưởng sản xuất
         sx_phuy_gio_count = sx_filtered["Phuy giở"].sum()
         sx_phuy_gio_kg = sx_filtered["Kg phuy giở"].sum()
         sx_bon_kg = sx_filtered["Kg bồn"].sum()
@@ -786,60 +815,165 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
         sx_phuy_total = sx_phuy_nguyen_count
         sx_kg_total = sx_phuy_nguyen_kg
 
-        # 3. SL HÓA CHẤT TRONG KHO (TỒN KHO THỰC TẾ)
-        # Tồn phuy nguyên = Tổng nhập - Đã xuất nguyên đi sản xuất
+        # 3. TỒN KHO THỰC TẾ
         ton_phuy_nguyen = max(0.0, tong_nhap_phuy - sx_phuy_nguyen_count)
         ton_kg_phuy_nguyen = max(0.0, tong_nhap_kg - sx_phuy_nguyen_kg)
 
-        # Phuy giở tồn kho
         ton_phuy_gio = sx_phuy_gio_count
         ton_kg_phuy_gio = sx_phuy_gio_kg
 
-        # H/C trong bồn tồn kho
         ton_bon_kg = sx_bon_kg
 
-        # 4. ĐỊNH MỨC TRUNG BÌNH SẢN XUẤT TRONG 1 NGÀY
-        unique_days = sx_filtered["Ngày"].nunique()
-        if unique_days > 0:
-            avg_kg_day = round(sx_filtered["Tổng Kg"].sum() / unique_days, 1)
-            avg_phuy_day = round(avg_kg_day / kg_std, 2)
-        else:
-            avg_kg_day = 0.0
-            avg_phuy_day = 0.0
+        # 4. ĐỊNH MỨC TB NGÀY (LẤY TỪ BẢNG NHẬP TAY THEO ẢNH 2)
+        norm_val = norms_map.get(hc, {"phuy": 0.0, "kg": 0.0})
 
-        report_rows.append({
-            "CHỦNG LOẠI": hc,
-            "Tổng Nhập (Phuy)": round(tong_nhap_phuy, 1),
-            "Tổng Nhập (Kg)": round(tong_nhap_kg, 1),
-            "Kho: Phuy nguyên (Phuy)": round(ton_phuy_nguyen, 1),
-            "Kho: Phuy nguyên (Kg)": round(ton_kg_phuy_nguyen, 1),
-            "Kho: Phuy giở (Phuy)": round(ton_phuy_gio, 1),
-            "Kho: Phuy giở (Kg)": round(ton_kg_phuy_gio, 1),
-            "SX (Phuy)": round(sx_phuy_total, 1),
-            "SX Phuy (Kg)": round(sx_kg_total, 1),
-            "SX Trong bồn (Kg)": round(ton_bon_kg, 1),
-            "Định mức TB ngày (Phuy)": avg_phuy_day,
-            "Định mức TB ngày (Kg)": avg_kg_day
+        report_data.append({
+            "hc": hc,
+            "nhap_phuy": f"{tong_nhap_phuy:.1f}" if tong_nhap_phuy > 0 else "",
+            "nhap_kg": f"{tong_nhap_kg:.1f}" if tong_nhap_kg > 0 else "",
+            "kho_pn_phuy": f"{ton_phuy_nguyen:.1f}" if ton_phuy_nguyen > 0 else "",
+            "kho_pn_kg": f"{ton_kg_phuy_nguyen:.1f}" if ton_kg_phuy_nguyen > 0 else "",
+            "kho_pg_phuy": f"{ton_phuy_gio:.1f}" if ton_phuy_gio > 0 else "",
+            "kho_pg_kg": f"{ton_kg_phuy_gio:.1f}" if ton_kg_phuy_gio > 0 else "",
+            "sx_p_phuy": f"{sx_phuy_total:.1f}" if sx_phuy_total > 0 else "",
+            "sx_p_kg": f"{sx_kg_total:.1f}" if sx_kg_total > 0 else "",
+            "sx_bon_kg": f"{ton_bon_kg:.1f}" if ton_bon_kg > 0 else "",
+            "norm_phuy": f"{norm_val['phuy']:.1f}" if norm_val['phuy'] > 0 else "",
+            "norm_kg": f"{norm_val['kg']:.1f}" if norm_val['kg'] > 0 else ""
         })
 
-    df_chemical_report = pd.DataFrame(report_rows)
+    # XUẤT BẢNG HTML CHUẨN MERGE HEADER ĐÚNG 100% THEO ẢNH 1
+    table_html = """
+    <style>
+        .chem-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Times New Roman', Times, serif;
+            color: #000;
+            background-color: #fff;
+            margin-top: 10px;
+        }
+        .chem-table th, .chem-table td {
+            border: 1px solid #000;
+            padding: 6px 8px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .chem-table th {
+            font-weight: bold;
+            background-color: #f9f9f9;
+        }
+        .chem-table td.col-name {
+            text-align: left;
+            font-weight: bold;
+            padding-left: 10px;
+        }
+    </style>
+    <table class="chem-table">
+        <thead>
+            <tr>
+                <th rowspan="3" style="width: 20%;">CHỦNG LOẠI</th>
+                <th colspan="2" rowspan="2" style="width: 14%;">Tổng SL Hóa Chất<br>Nhập Kho</th>
+                <th colspan="7" style="width: 48%;">SL Hóa Chất Trong Kho</th>
+                <th colspan="2" rowspan="2" style="width: 18%;">Định mức trung bình sản xuất<br>trong 1 ngày</th>
+            </tr>
+            <tr>
+                <th colspan="2">SL Hóa Chất<br>(Phuy nguyên)</th>
+                <th colspan="2">SL Hóa Chất<br>(Phuy giở)</th>
+                <th colspan="2">SL Hóa Chất<br>SX (Phuy)</th>
+                <th rowspan="2">SL H/C SX<br>(Trong bồn)<br>Kg</th>
+            </tr>
+            <tr>
+                <th>Phuy</th><th>Kg</th>
+                <th>Phuy</th><th>Kg</th>
+                <th>Phuy</th><th>Kg</th>
+                <th>Phuy</th><th>Kg</th>
+                <th>Phuy</th><th>Kg</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    for row in report_data:
+        table_html += f"""
+            <tr>
+                <td class="col-name">{row['hc']}</td>
+                <td>{row['nhap_phuy']}</td>
+                <td>{row['nhap_kg']}</td>
+                <td>{row['kho_pn_phuy']}</td>
+                <td>{row['kho_pn_kg']}</td>
+                <td>{row['kho_pg_phuy']}</td>
+                <td>{row['kho_pg_kg']}</td>
+                <td>{row['sx_p_phuy']}</td>
+                <td>{row['sx_p_kg']}</td>
+                <td>{row['sx_bon_kg']}</td>
+                <td>{row['norm_phuy']}</td>
+                <td>{row['norm_kg']}</td>
+            </tr>
+        """
+    table_html += "</tbody></table>"
+    st.markdown(table_html, unsafe_allow_html=True)
 
-    c_btn_hc1, c_btn_hc2 = st.columns([3, 7])
-    with c_btn_hc1:
-        st.download_button(
-            label="📥 Tải Báo cáo Hóa chất về Excel (.xlsx)",
-            data=to_excel_bytes(df_chemical_report, 'Ton_Kho_Hoa_Chat'),
-            file_name=f"Ton_Kho_Hoa_Chat_Chuong_My_{datetime.date.today().strftime('%d_%m_%Y')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="btn_dl_excel_hc"
+    # Nút xuất file Excel
+    st.write("")
+    df_excel_export = pd.DataFrame([{
+        "CHỦNG LOẠI": r["hc"],
+        "Tổng Nhập (Phuy)": r["nhap_phuy"],
+        "Tổng Nhập (Kg)": r["nhap_kg"],
+        "Phuy nguyên tồn (Phuy)": r["kho_pn_phuy"],
+        "Phuy nguyên tồn (Kg)": r["kho_pn_kg"],
+        "Phuy giở (Phuy)": r["kho_pg_phuy"],
+        "Phuy giở (Kg)": r["kho_pg_kg"],
+        "SX Phuy (Phuy)": r["sx_p_phuy"],
+        "SX Phuy (Kg)": r["sx_p_kg"],
+        "SX Trong bồn (Kg)": r["sx_bon_kg"],
+        "Định mức TB ngày (Phuy)": r["norm_phuy"],
+        "Định mức TB ngày (Kg)": r["norm_kg"]
+    } for r in report_data])
+
+    st.download_button(
+        label="📥 Tải Báo cáo Hóa chất về Excel (.xlsx)",
+        data=to_excel_bytes(df_excel_export, 'Ton_Kho_Hoa_Chat'),
+        file_name=f"Ton_Kho_Hoa_Chat_Chuong_My_{datetime.date.today().strftime('%d_%m_%Y')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="btn_dl_excel_hc_custom"
+    )
+
+    # MỤC NHẬP TAY ĐỊNH MỨC TRUNG BÌNH NGÀY (ẢNH 2)
+    st.markdown("---")
+    with st.expander("⚙️ NHẬP / CẬP NHẬT ĐỊNH MỨC TRUNG BÌNH SẢN XUẤT 1 NGÀY (NHẬP TAY)", expanded=True):
+        st.caption("💡 Bạn gõ trực tiếp số Phuy hoặc số Kg định mức vào bảng bên dưới rồi nhấn **Lưu Định Mức**.")
+        
+        edited_norms = st.data_editor(
+            df_norms,
+            disabled=["Chủng loại"],
+            column_config={
+                "Định mức Phuy": st.column_config.NumberColumn("Định mức Phuy", format="%.2f", min_value=0.0),
+                "Định mức Kg": st.column_config.NumberColumn("Định mức Kg", format="%.1f", min_value=0.0)
+            },
+            width='stretch',
+            key="editor_chemical_norms"
         )
-    with c_btn_hc2:
-        st.caption("💡 *Số liệu khớp 100%: Tổng Nhập = Tồn Kho (Phuy nguyên + Phuy giở + Bồn) + Đã Xuất Dùng.*")
 
-    st.dataframe(df_chemical_report, hide_index=True, use_container_width=True)
+        if st.button("💾 Lưu Định Mức Sản Xuất", type="primary", key="btn_save_chemical_norms"):
+            with engine.connect() as conn:
+                for idx, r in edited_norms.iterrows():
+                    conn.execute(text("""
+                        INSERT INTO chemical_norm (chemical_name, norm_phuy, norm_kg)
+                        VALUES (:name, :phuy, :kg)
+                        ON CONFLICT (chemical_name) DO UPDATE
+                        SET norm_phuy = EXCLUDED.norm_phuy, norm_kg = EXCLUDED.norm_kg;
+                    """), {
+                        "name": safe_str(r["Chủng loại"]),
+                        "phuy": safe_float(r["Định mức Phuy"]),
+                        "kg": safe_float(r["Định mức Kg"])
+                    })
+                conn.commit()
+            st.cache_data.clear()
+            st.session_state["msg_success"] = "✅ Đã lưu định mức sản xuất hóa chất thành công!"
+            st.rerun()
 
 # =============================================================
-# (CÁC MỤC CÒN LẠI: TÔN, PANEL, GHÉP ĐƠN, DASHBOARD GIỮ NGUYÊN)
+# (CÁC MỤC KHÁC GIỮ NGUYÊN HOÀN TOÀN)
 # =============================================================
 elif lua_chon == "➕ Nhập lỗi Tôn":
     st.title("➕ Nhập hàng lỗi phát sinh cho Tôn")
@@ -971,7 +1105,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                                                      current_sheets, total_meters, trang_thai, don_da_ghep, nguoi_ghep, reason, fault_by)
                     VALUES (:nl, :wh, :cust, :vt, :oc, :at, :br, :kpk, :th, :co, :sl, :ul, :cs, :tm, :tt, :dg, :ng, :re, :fb)
                     """), {
-                        "nl": safe_date(ngay_loi_pk), "wh": safe_str(pk_kho), "cust": safe_str(pk_customer), "vt": safe_str(pk_vi_tri), 
+                        "nl": safe_date(ngay_loi_pk), "wh": safe_str(pk_kho), "cust": safe_str(pk_customer), "vt": safe_str(vi_tri), 
                         "oc": pk_don or "Không có", "at": safe_str(pk_loai), "br": safe_str(pk_ten), "kpk": safe_str(pk_kho_phukien), 
                         "th": safe_float(pk_day), "co": safe_str(pk_mau), "sl": pk_dai, "ul": pk_ulen, "cs": 0 if "Đã xử lý" in trang_thai_chon_pk else pk_tam, 
                         "tm": 0.0 if "Đã xử lý" in trang_thai_chon_pk else float(pk_dai * pk_tam),
@@ -1019,13 +1153,13 @@ elif lua_chon == "➕ Nhập lỗi Panel":
     for i in range(st.session_state.num_specs_pn):
         if pn_kho == "Kho hàng lỗi trả về":
             c_sp1, c_sp2, c_sp3 = st.columns(3)
-            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
             with c_sp2: u_val = st.number_input(f"Dài ghép được (m) #{i+1} *", value=d_val, step=0.1, key=f"pn_ulen_{i}")
             with c_sp3: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
             specs_pn_data.append((d_val, q_val, u_val))
         else:
             c_sp1, c_sp2 = st.columns(2)
-            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
             with c_sp2: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
             specs_pn_data.append((d_val, q_val, d_val))
 

@@ -80,6 +80,14 @@ DANH_SACH_HOA_CHAT = [
     "KPX-6685", "POLY RESIN", "DUNG DỊCH MC"
 ]
 
+# DANH MỤC BỘ PHẬN SỬ DỤNG CHUẨN (ẢNH 1)
+DANH_SACH_BO_PHAN_SD = [
+    "Panel",
+    "PU máy Eco",
+    "PU máy G",
+    "PU máy Ngói Xốp"
+]
+
 # --- 3. KHỞI TẠO BẢNG & TỰ ĐỘNG CẬP NHẬT CỘT ---
 @st.cache_resource
 def init_database_tables():
@@ -558,7 +566,7 @@ if lua_chon == "📋 Tra cứu tồn kho":
             st.rerun()
 
 # =============================================================
-# 2. NHẬP KHO HÓA CHẤT (HỖ TRỢ SỬA KHI NHẬP SAI)
+# 2. NHẬP KHO HÓA CHẤT (ẢNH 3: QUY CÁCH KG NHẬP TAY)
 # =============================================================
 elif lua_chon == "📥 Nhập kho Hóa chất":
     st.title("📥 Nhập Kho Hóa Chất")
@@ -569,13 +577,13 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
             ten_hc = st.selectbox("Loại Hóa Chất *", DANH_SACH_HOA_CHAT)
             so_phuy_nhap = st.number_input("Số lượng (Phuy) *", min_value=0.1, value=1.0, step=1.0)
         with col_hc2:
-            is_iso = "ISO" in ten_hc
-            kg_options = [250.0] if is_iso else [220.0, 210.0, 250.0]
-            kg_per_phuy = st.selectbox("Quy cách trọng lượng (Kg / Phuy) *", kg_options)
+            # QUY CÁCH KG Ở MỤC NHẬP KHO CHUYỂN SANG NHẬP TAY (ẢNH 3)
+            default_kg_nhap = 250.0 if "ISO" in ten_hc else 220.0
+            kg_per_phuy = st.number_input("Quy cách trọng lượng (Kg / Phuy) *", min_value=1.0, value=default_kg_nhap, step=1.0)
             ghi_chu_hc = st.text_input("Ghi chú / Số lô sản xuất", placeholder="Ví dụ: Lô SX ngày...")
 
         tong_kg_nhap = float(so_phuy_nhap * kg_per_phuy)
-        st.info(f"👉 Tổng trọng lượng quy đổi: **{tong_kg_nhap:,.1f} Kg** ({so_phuy_nhap:.1f} Phuy x {kg_per_phuy} Kg)")
+        st.info(f"👉 Tổng trọng lượng quy đổi: **{tong_kg_nhap:,.1f} Kg** ({so_phuy_nhap:.1f} Phuy x {kg_per_phuy:.1f} Kg)")
         btn_luu_nhap_hc = st.form_submit_button("💾 Lưu Nhập Kho Hóa Chất", type="primary")
 
     if btn_luu_nhap_hc:
@@ -649,7 +657,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 3. NHẬT KÝ SẢN XUẤT HÓA CHẤT (HỖ TRỢ SỬA KHI NHẬP SAI)
+# 3. NHẬT KÝ SẢN XUẤT HÓA CHẤT (ẢNH 1: 4 BỘ PHẬN & ẢNH 2: KG NHẬP TAY)
 # =============================================================
 elif lua_chon == "📝 Nhật ký SX Hóa chất":
     st.title("📝 Nhật Ký Sản Xuất Hóa Chất")
@@ -658,11 +666,12 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
         with c_nk1:
             ngay_sx_hc = st.date_input("Ngày sản xuất", datetime.date.today())
             ten_hc_sx = st.selectbox("Loại Hóa Chất *", DANH_SACH_HOA_CHAT)
-            bo_phan_sd = st.selectbox("Bộ phận sử dụng *", ["Tổ Panel", "Tổ Xốp Cán Tôn", "Tổ Ngói Xốp", "Bảo dưỡng / Khác"])
+            # DANH SÁCH BỘ PHẬN SỬ DỤNG CHUẨN THEO ẢNH 1
+            bo_phan_sd = st.selectbox("Bộ phận sử dụng *", DANH_SACH_BO_PHAN_SD)
         with c_nk2:
-            is_iso_sx = "ISO" in ten_hc_sx
-            kg_options_sx = [250.0] if is_iso_sx else [220.0, 210.0, 250.0]
-            kg_quy_cach_sx = st.selectbox("Quy cách Phuy nguyên (Kg/Phuy) *", kg_options_sx)
+            # QUY CÁCH KG Ở MỤC NHẬT KÝ CHUYỂN SANG NHẬP TAY (ẢNH 2)
+            default_kg_sx = 250.0 if "ISO" in ten_hc_sx else 220.0
+            kg_quy_cach_sx = st.number_input("Quy cách Phuy nguyên (Kg/Phuy) *", min_value=1.0, value=default_kg_sx, step=1.0)
 
         st.markdown("##### 🔢 Chi tiết số lượng tiêu hao:")
         c_sx_a, c_sx_b, c_sx_c = st.columns(3)
@@ -712,7 +721,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
             disabled=["id", "Người ghi"],
             column_config={
                 "Tên hóa chất": st.column_config.SelectboxColumn("Tên hóa chất", options=DANH_SACH_HOA_CHAT),
-                "Bộ phận": st.column_config.SelectboxColumn("Bộ phận", options=["Tổ Panel", "Tổ Xốp Cán Tôn", "Tổ Ngói Xốp", "Bảo dưỡng / Khác"]),
+                "Bộ phận": st.column_config.SelectboxColumn("Bộ phận", options=DANH_SACH_BO_PHAN_SD),
                 "Phuy nguyên": st.column_config.NumberColumn("Phuy nguyên", format="%.1f"),
                 "Kg phuy nguyên": st.column_config.NumberColumn("Kg phuy nguyên", format="%.1f"),
                 "Phuy giở": st.column_config.NumberColumn("Phuy giở", format="%.1f"),
@@ -770,7 +779,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (KHỚP CHUẨN XÁC CÔNG THỨC VẬT TƯ)
+# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CÔNG THỨC CHUẨN XÁC)
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)
@@ -791,39 +800,30 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     for hc in DANH_SACH_HOA_CHAT:
         kg_std = 250.0 if "ISO" in hc else 220.0
 
-        # 1. TỔNG SL HÓA CHẤT NHẬP KHO (Từ bảng Nhập)
+        # 1. TỔNG SL HÓA CHẤT NHẬP KHO
         im_filtered = df_im[df_im["Tên hóa chất"] == hc]
         tong_nhap_phuy = im_filtered["Số phuy"].sum()
         tong_nhap_kg = im_filtered["Tổng Kg"].sum()
 
-        # 2. DỮ LIỆU SẢN XUẤT (Từ Nhật ký SX)
+        # 2. DỮ LIỆU SẢN XUẤT
         sx_filtered = df_sx[df_sx["Tên hóa chất"] == hc]
-        
-        # Phuy nguyên đã dùng hết -> biến thành Vỏ phuy (SL Phuy Đã SX)
         sx_phuy_nguyen_count = sx_filtered["Phuy nguyên"].sum()
         sx_phuy_nguyen_kg = sx_filtered["Kg phuy nguyên"].sum()
 
-        # Phuy giở đang khui tại xưởng
         sx_phuy_gio_count = sx_filtered["Phuy giở"].sum()
         sx_phuy_gio_kg = sx_filtered["Kg phuy giở"].sum()
-
-        # Hóa chất trong bồn
         sx_bon_kg = sx_filtered["Kg bồn"].sum()
 
-        # 3. TỒN KHO PHUY NGUYÊN THỰC TẾ CHƯA ĐỤNG ĐẾN:
-        # Tồn phuy nguyên = Tổng nhập - (Phuy nguyên đã xuất hết + Phuy đang khui giở)
+        # 3. TỒN KHO THỰC TẾ CHƯA ĐỤNG ĐẾN
         tong_phuy_da_xuat = sx_phuy_nguyen_count + sx_phuy_gio_count
         ton_phuy_nguyen = max(0.0, tong_nhap_phuy - tong_phuy_da_xuat)
         ton_kg_phuy_nguyen = ton_phuy_nguyen * kg_std
 
-        # Phuy giở tồn kho
         ton_phuy_gio = sx_phuy_gio_count
         ton_kg_phuy_gio = sx_phuy_gio_kg
 
-        # H/C trong bồn tồn kho
         ton_bon_kg = sx_bon_kg
 
-        # 4. ĐỊNH MỨC TB NGÀY
         norm_val = norms_map.get(hc, {"phuy": 0.0, "kg": 0.0})
 
         report_data.append({
@@ -841,7 +841,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
             "norm_kg": f"{norm_val['kg']:.1f}" if norm_val['kg'] > 0 else ""
         })
 
-    # XUẤT BẢNG HTML CHUẨN MERGE HEADER
+    # XUẤT BẢNG HTML CHUẨN BIỂU MẪU
     table_parts = [
         '<table style="width:100%; border-collapse:collapse; font-family:\'Times New Roman\', serif; text-align:center; font-size:14px; background-color:#fff; color:#000;">',
         '<thead>',
@@ -890,9 +890,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
         table_parts.append('</tr>')
 
     table_parts.append('</tbody></table>')
-    full_table_html = "".join(table_parts)
-
-    st.markdown(full_table_html, unsafe_allow_html=True)
+    st.markdown("".join(table_parts), unsafe_allow_html=True)
 
     st.write("")
     df_excel_export = pd.DataFrame([{

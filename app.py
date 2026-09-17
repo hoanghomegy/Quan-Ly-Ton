@@ -770,7 +770,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (SỬA TRIỆT ĐỂ LỖI HIỂN THỊ HTML)
+# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CẬP NHẬT TIÊU ĐỀ SL PHUY ĐÃ SX - VỎ PHUY)
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)
@@ -829,7 +829,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
             "norm_kg": f"{norm_val['kg']:.1f}" if norm_val['kg'] > 0 else ""
         })
 
-    # XÂY DỰNG CHUỖI HTML KHÔNG THỤT LỀ (TRÁNH LỖI HIỂN THỊ TEXT TRÊN STREAMLIT)
+    # ĐỔI TIÊU ĐỀ THÀNH: SL Phuy Đã SX ( Vỏ phuy )
     table_parts = [
         '<table style="width:100%; border-collapse:collapse; font-family:\'Times New Roman\', serif; text-align:center; font-size:14px; background-color:#fff; color:#000;">',
         '<thead>',
@@ -842,7 +842,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
         '<tr style="background-color:#f9f9f9; font-weight:bold;">',
         '<th colspan="2" style="border:1px solid #000; padding:6px;">SL Hóa Chất<br>(Phuy nguyên)</th>',
         '<th colspan="2" style="border:1px solid #000; padding:6px;">SL Hóa Chất<br>(Phuy giở)</th>',
-        '<th colspan="2" style="border:1px solid #000; padding:6px;">SL Hóa Chất<br>SX (Phuy)</th>',
+        '<th colspan="2" style="border:1px solid #000; padding:6px;">SL Phuy Đã SX<br>( Vỏ phuy )</th>',
         '<th rowspan="2" style="border:1px solid #000; padding:6px;">SL H/C SX<br>(Trong bồn)<br>Kg</th>',
         '</tr>',
         '<tr style="background-color:#f9f9f9; font-weight:bold;">',
@@ -891,8 +891,8 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
         "Phuy nguyên tồn (Kg)": r["kho_pn_kg"],
         "Phuy giở (Phuy)": r["kho_pg_phuy"],
         "Phuy giở (Kg)": r["kho_pg_kg"],
-        "SX Phuy (Phuy)": r["sx_p_phuy"],
-        "SX Phuy (Kg)": r["sx_p_kg"],
+        "SL Phuy Đã SX - Vỏ phuy (Phuy)": r["sx_p_phuy"],
+        "SL Phuy Đã SX - Vỏ phuy (Kg)": r["sx_p_kg"],
         "SX Trong bồn (Kg)": r["sx_bon_kg"],
         "Định mức TB ngày (Phuy)": r["norm_phuy"],
         "Định mức TB ngày (Kg)": r["norm_kg"]
@@ -906,7 +906,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
         key="btn_dl_excel_hc_custom"
     )
 
-    # MỤC NHẬP TAY ĐỊNH MỨC TRUNG BÌNH NGÀY (ẢNH 2)
+    # MỤC NHẬP TAY ĐỊNH MỨC TRUNG BÌNH NGÀY
     st.markdown("---")
     with st.expander("⚙️ NHẬP / CẬP NHẬT ĐỊNH MỨC TRUNG BÌNH SẢN XUẤT 1 NGÀY (NHẬP TAY)", expanded=True):
         st.caption("💡 Bạn gõ trực tiếp số Phuy hoặc số Kg định mức vào bảng bên dưới rồi nhấn **Lưu Định Mức**.")
@@ -1073,7 +1073,7 @@ elif lua_chon == "➕ Nhập lỗi Phụ kiện":
                                                      current_sheets, total_meters, trang_thai, don_da_ghep, nguoi_ghep, reason, fault_by)
                     VALUES (:nl, :wh, :cust, :vt, :oc, :at, :br, :kpk, :th, :co, :sl, :ul, :cs, :tm, :tt, :dg, :ng, :re, :fb)
                     """), {
-                        "nl": safe_date(ngay_loi_pk), "wh": safe_str(pk_kho), "cust": safe_str(pk_customer), "vt": safe_str(pk_vi_tri), 
+                        "nl": safe_date(ngay_loi_pk), "wh": safe_str(pk_kho), "cust": safe_str(pk_customer), "vt": safe_str(vi_tri), 
                         "oc": pk_don or "Không có", "at": safe_str(pk_loai), "br": safe_str(pk_ten), "kpk": safe_str(pk_kho_phukien), 
                         "th": safe_float(pk_day), "co": safe_str(pk_mau), "sl": pk_dai, "ul": pk_ulen, "cs": 0 if "Đã xử lý" in trang_thai_chon_pk else pk_tam, 
                         "tm": 0.0 if "Đã xử lý" in trang_thai_chon_pk else float(pk_dai * pk_tam),
@@ -1121,13 +1121,13 @@ elif lua_chon == "➕ Nhập lỗi Panel":
     for i in range(st.session_state.num_specs_pn):
         if pn_kho == "Kho hàng lỗi trả về":
             c_sp1, c_sp2, c_sp3 = st.columns(3)
-            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
             with c_sp2: u_val = st.number_input(f"Dài ghép được (m) #{i+1} *", value=d_val, step=0.1, key=f"pn_ulen_{i}")
             with c_sp3: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
             specs_pn_data.append((d_val, q_val, u_val))
         else:
             c_sp1, c_sp2 = st.columns(2)
-            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
             with c_sp2: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
             specs_pn_data.append((d_val, q_val, d_val))
 

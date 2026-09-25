@@ -1,6 +1,6 @@
 streamlit
 pandas
-sqlalchemy
-psycopg2-binary
+SQLAlchemy
 bcrypt
 openpyxl
+psycopg2-binary

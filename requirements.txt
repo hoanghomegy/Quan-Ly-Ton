@@ -3,4 +3,5 @@ pandas
 SQLAlchemy
 bcrypt
 openpyxl
+psycopg[binary]
 psycopg2-binary

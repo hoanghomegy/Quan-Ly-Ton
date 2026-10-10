@@ -82,7 +82,7 @@ DANH_SACH_HOA_CHAT = [
     "KPX-6685", "POLY RESIN", "DUNG DỊCH MC"
 ]
 
-# DANH MỤC BỘ PHẬN SỬ DỤNG CHUẨN (ẢNH 1)
+# DANH MỤC BỘ PHẬN SỬ DỤNG CHUẨN
 DANH_SACH_BO_PHAN_SD = [
     "Panel",
     "PU máy Eco",
@@ -472,103 +472,173 @@ lua_chon = st.sidebar.radio("Chức năng:", menu_options)
 da_dang_nhap = st.session_state.user is not None
 
 # =============================================================
-# 1. TRA CỨU TỒN KHO
+# 1. TRA CỨU TỒN KHO (ĐÃ BỔ SUNG NÚT XÓA DÒNG CHO TÔN, PK, PANEL)
 # =============================================================
 if lua_chon == "📋 Tra cứu tồn kho":
     if not da_dang_nhap:
         st.warning("🔒 **Bạn đang ở Chế độ Chỉ Xem (Read-only)**. Vui lòng đăng nhập để thao tác.")
     tab_ton, tab_pk, tab_pn = st.tabs(["📦 Tồn kho Tôn lỗi", "🛠️ Tồn kho Phụ kiện", "🧱 Tồn kho Panel"])
+    
+    # 1.1 TỒN KHO TÔN LỖI
     with tab_ton:
         st.subheader("📋 Danh mục Tôn lỗi tồn kho")
         df_ton = load_ton_data()
         st.download_button("📥 Tải kho Tôn về Excel (.xlsx)", to_excel_bytes(df_ton, 'Ton_Loi'), f"Ton_Kho_Ton_{datetime.date.today()}.xlsx")
         edited_ton = st.data_editor(df_ton, disabled=df_ton.columns.tolist() if not da_dang_nhap else ["id"], width='stretch', key="editor_ton")
-        if da_dang_nhap and st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary", key="btn_save_ton_manual"):
-            with engine.connect() as conn:
-                for idx, r in edited_ton.iterrows():
-                    sl_val = safe_float(r["Dài (m)"])
-                    cs_val = safe_int(r["Số tấm còn"])
-                    conn.execute(text("""
-                        UPDATE inventory SET ngay_loi=:nl, source_warehouse=:wh, vi_tri_de=:vt, order_code=:oc,
-                        brand=:br, thickness=:th, color=:co, corrugation_type=:cr, ton_type=:tt, foam_type=:fo,
-                        sheet_length=:sl, current_sheets=:cs, remaining_meters=:rm, total_meters=:tm, scrap_meters=:sm,
-                        usable_length=:ul, is_matched=:im, reason=:re, fault_by=:fb, matched_order_code=:moc,
-                        matched_by_user=:mbu, matched_length=:ml, matched_sheets=:ms WHERE id=:id
-                    """), {
-                        "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "vt": safe_str(r["Vị trí"]),
-                        "oc": safe_str(r["Mã đơn"]), "br": safe_str(r["Hãng"]), "th": safe_float(r["Dày (mm)"]),
-                        "co": safe_str(r["Màu"]), "cr": safe_str(r["Sóng"]), "tt": safe_str(r["Loại tôn"]),
-                        "fo": safe_str(r["Quy cách xốp/ngói"]), "sl": sl_val, "cs": cs_val, "rm": safe_float(r["Còn lại mét tồn kho"]),
-                        "tm": float(sl_val * cs_val), "sm": safe_float(r["Phế (m)"]), "ul": safe_float(r["Độ dài ghép được (m)"], sl_val),
-                        "im": "Đã ghép" if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) else "Chưa ghép", "re": safe_str(r["Nguyên nhân"]),
-                        "fb": safe_str(r["Lỗi do ai"]), "moc": safe_str(r["Đơn hàng ghép"]), "mbu": safe_str(r["Ai là người ghép"]),
-                        "ml": safe_float(r["Ghép sang kích thước (m)"]), "ms": safe_int(r["Số lượng tấm ghép"]), "id": int(r["id"])
-                    })
-                conn.commit()
-            st.cache_data.clear()
-            st.session_state["msg_success"] = "Đã lưu bảng Tôn thành công!"
-            st.rerun()
+        
+        if da_dang_nhap:
+            col_t1, col_t2 = st.columns([3, 7])
+            with col_t1:
+                if st.button("💾 Lưu thay đổi trên bảng Tôn", type="primary", key="btn_save_ton_manual"):
+                    with engine.connect() as conn:
+                        for idx, r in edited_ton.iterrows():
+                            sl_val = safe_float(r["Dài (m)"])
+                            cs_val = safe_int(r["Số tấm còn"])
+                            conn.execute(text("""
+                                UPDATE inventory SET ngay_loi=:nl, source_warehouse=:wh, vi_tri_de=:vt, order_code=:oc,
+                                brand=:br, thickness=:th, color=:co, corrugation_type=:cr, ton_type=:tt, foam_type=:fo,
+                                sheet_length=:sl, current_sheets=:cs, remaining_meters=:rm, total_meters=:tm, scrap_meters=:sm,
+                                usable_length=:ul, is_matched=:im, reason=:re, fault_by=:fb, matched_order_code=:moc,
+                                matched_by_user=:mbu, matched_length=:ml, matched_sheets=:ms WHERE id=:id
+                            """), {
+                                "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "vt": safe_str(r["Vị trí"]),
+                                "oc": safe_str(r["Mã đơn"]), "br": safe_str(r["Hãng"]), "th": safe_float(r["Dày (mm)"]),
+                                "co": safe_str(r["Màu"]), "cr": safe_str(r["Sóng"]), "tt": safe_str(r["Loại tôn"]),
+                                "fo": safe_str(r["Quy cách xốp/ngói"]), "sl": sl_val, "cs": cs_val, "rm": safe_float(r["Còn lại mét tồn kho"]),
+                                "tm": float(sl_val * cs_val), "sm": safe_float(r["Phế (m)"]), "ul": safe_float(r["Độ dài ghép được (m)"], sl_val),
+                                "im": "Đã ghép" if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) else "Chưa ghép", "re": safe_str(r["Nguyên nhân"]),
+                                "fb": safe_str(r["Lỗi do ai"]), "moc": safe_str(r["Đơn hàng ghép"]), "mbu": safe_str(r["Ai là người ghép"]),
+                                "ml": safe_float(r["Ghép sang kích thước (m)"]), "ms": safe_int(r["Số lượng tấm ghép"]), "id": int(r["id"])
+                            })
+                        conn.commit()
+                    st.cache_data.clear()
+                    st.session_state["msg_success"] = "Đã lưu bảng Tôn thành công!"
+                    st.rerun()
 
+            # NÚT XÓA DÒNG CHO TÔN LỖI
+            if not df_ton.empty:
+                with st.expander("🗑️ Xóa dòng Tôn bị nhập sai"):
+                    c_del1, c_del2 = st.columns([3, 2])
+                    with c_del1:
+                        id_del_ton = st.selectbox("Chọn ID Tôn cần xóa:", df_ton['id'].tolist(), key="del_ton_sel_box")
+                    with c_del2:
+                        st.write("")
+                        st.write("")
+                        if st.button("❌ Xóa dòng Tôn này", key="btn_del_ton_execute"):
+                            target_del_id = int(id_del_ton)
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM inventory WHERE id = :id"), {"id": target_del_id})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Tôn ID {target_del_id}!"
+                            st.rerun()
+
+    # 1.2 TỒN KHO PHỤ KIỆN
     with tab_pk:
         st.subheader("🛠️ Danh mục Phụ kiện")
         df_pk = load_pk_data()
         st.download_button("📥 Tải kho Phụ kiện về Excel (.xlsx)", to_excel_bytes(df_pk, 'Phu_Kien'), f"Ton_Kho_PK_{datetime.date.today()}.xlsx")
         edited_pk = st.data_editor(df_pk, disabled=df_pk.columns.tolist() if not da_dang_nhap else ["id"], width='stretch', key="editor_pk")
-        if da_dang_nhap and st.button("💾 Lưu thay đổi trên bảng Phụ kiện", type="primary", key="btn_save_pk_manual"):
-            with engine.connect() as conn:
-                for idx, r in edited_pk.iterrows():
-                    sl_v = safe_float(r["Dài 1 tấm (m)"])
-                    cs_v = safe_int(r["Số tấm còn"])
-                    conn.execute(text("""
-                        UPDATE accessory_inventory SET ngay_loi=:nl, source_warehouse=:wh, customer_name=:cust, vi_tri_de=:vt,
-                        order_code=:oc, accessory_type=:at, brand=:br, kho_phu_kien=:kpk, thickness=:th, color=:co, sheet_length=:sl,
-                        current_sheets=:cs, total_meters=:tm, usable_length=:ul, trang_thai=:tt, don_da_ghep=:dg, nguoi_ghep=:ng, reason=:re, fault_by=:fb
-                        WHERE id=:id
-                    """), {
-                        "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "cust": safe_str(r["Khách Hàng/Đại Lý"]), "vt": safe_str(r["Vị trí"]),
-                        "oc": safe_str(r["Mã đơn"]), "at": safe_str(r["Loại phụ kiện"]), "br": safe_str(r["Tên phụ kiện"]), "kpk": safe_str(r["Khổ PK"]),
-                        "th": safe_float(r["Dày (mm)"]), "co": safe_str(r["Màu"]), "sl": sl_v, "cs": cs_v, "tm": float(sl_v * cs_v),
-                        "ul": safe_float(r["Độ dài ghép được (m)"], sl_v), "tt": safe_str(r["Trạng thái"]).replace("🔴 ", "").replace("🟢 ", "").replace("🟡 ", ""),
-                        "dg": safe_str(r["Đơn đã ghép"]), "ng": safe_str(r["Người ghép"]), "re": safe_str(r["Nguyên nhân"]), "fb": safe_str(r["Lỗi do ai"]), "id": int(r["id"])
-                    })
-                conn.commit()
-            st.cache_data.clear()
-            st.session_state["msg_success"] = "Đã lưu bảng Phụ kiện thành công!"
-            st.rerun()
+        
+        if da_dang_nhap:
+            col_pk_btn1, col_pk_btn2 = st.columns([3, 7])
+            with col_pk_btn1:
+                if st.button("💾 Lưu thay đổi trên bảng Phụ kiện", type="primary", key="btn_save_pk_manual"):
+                    with engine.connect() as conn:
+                        for idx, r in edited_pk.iterrows():
+                            sl_v = safe_float(r["Dài 1 tấm (m)"])
+                            cs_v = safe_int(r["Số tấm còn"])
+                            conn.execute(text("""
+                                UPDATE accessory_inventory SET ngay_loi=:nl, source_warehouse=:wh, customer_name=:cust, vi_tri_de=:vt,
+                                order_code=:oc, accessory_type=:at, brand=:br, kho_phu_kien=:kpk, thickness=:th, color=:co, sheet_length=:sl,
+                                current_sheets=:cs, total_meters=:tm, usable_length=:ul, trang_thai=:tt, don_da_ghep=:dg, nguoi_ghep=:ng, reason=:re, fault_by=:fb
+                                WHERE id=:id
+                            """), {
+                                "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "cust": safe_str(r["Khách Hàng/Đại Lý"]), "vt": safe_str(r["Vị trí"]),
+                                "oc": safe_str(r["Mã đơn"]), "at": safe_str(r["Loại phụ kiện"]), "br": safe_str(r["Tên phụ kiện"]), "kpk": safe_str(r["Khổ PK"]),
+                                "th": safe_float(r["Dày (mm)"]), "co": safe_str(r["Màu"]), "sl": sl_v, "cs": cs_v, "tm": float(sl_v * cs_v),
+                                "ul": safe_float(r["Độ dài ghép được (m)"], sl_v), "tt": safe_str(r["Trạng thái"]).replace("🔴 ", "").replace("🟢 ", "").replace("🟡 ", ""),
+                                "dg": safe_str(r["Đơn đã ghép"]), "ng": safe_str(r["Người ghép"]), "re": safe_str(r["Nguyên nhân"]), "fb": safe_str(r["Lỗi do ai"]), "id": int(r["id"])
+                            })
+                        conn.commit()
+                    st.cache_data.clear()
+                    st.session_state["msg_success"] = "Đã lưu bảng Phụ kiện thành công!"
+                    st.rerun()
 
+            # NÚT XÓA DÒNG CHO PHỤ KIỆN
+            if not df_pk.empty:
+                with st.expander("🗑️ Xóa dòng Phụ kiện bị nhập sai"):
+                    c_del_pk1, c_del_pk2 = st.columns([3, 2])
+                    with c_del_pk1:
+                        id_del_pk = st.selectbox("Chọn ID Phụ kiện cần xóa:", df_pk['id'].tolist(), key="del_pk_sel_box")
+                    with c_del_pk2:
+                        st.write("")
+                        st.write("")
+                        if st.button("❌ Xóa dòng Phụ kiện này", key="btn_del_pk_execute"):
+                            target_del_pk = int(id_del_pk)
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM accessory_inventory WHERE id = :id"), {"id": target_del_pk})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Phụ kiện ID {target_del_pk}!"
+                            st.rerun()
+
+    # 1.3 TỒN KHO PANEL
     with tab_pn:
         st.subheader("🧱 Danh mục Panel lỗi tồn kho")
         df_pn = load_panel_data()
         st.download_button("📥 Tải kho Panel về Excel (.xlsx)", to_excel_bytes(df_pn, 'Panel'), f"Ton_Kho_Panel_{datetime.date.today()}.xlsx")
         edited_pn = st.data_editor(df_pn, disabled=df_pn.columns.tolist() if not da_dang_nhap else ["id"], width='stretch', key="editor_pn")
-        if da_dang_nhap and st.button("💾 Lưu thay đổi trên bảng Panel", type="primary", key="btn_save_pn_manual"):
-            with engine.connect() as conn:
-                for idx, r in edited_pn.iterrows():
-                    sl_v = safe_float(r["Dài 1 tấm (m)"])
-                    cs_v = safe_int(r["Số tấm còn"])
-                    rm_v = safe_float(r["Còn lại mét tồn kho"])
-                    conn.execute(text("""
-                        UPDATE panel_inventory SET ngay_loi=:nl, source_warehouse=:wh, vi_tri_de=:vt, order_code=:oc, brand=:br,
-                        steel_thickness=:st, color=:co, core_thickness=:ct, kho_ton=:kt, foam_type=:fo, sheet_length=:sl, current_sheets=:cs,
-                        remaining_meters=:rm, scrap_meters=:sm, usable_length=:ul, total_meters=:tm, total_area_m2=:ta, is_matched=:im,
-                        reason=:re, fault_by=:fb, matched_order_code=:moc, matched_by_user=:mbu, matched_length=:ml, matched_sheets=:ms
-                        WHERE id=:id
-                    """), {
-                        "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "vt": safe_str(r["Vị trí"]), "oc": safe_str(r["Mã đơn"]),
-                        "br": safe_str(r["Hãng tôn"]), "st": safe_float(r["Dày tôn (mm)"]), "co": safe_str(r["Màu"]), "ct": safe_str(r["Độ dày Panel"]),
-                        "kt": safe_str(r["Khổ tôn"]), "fo": safe_str(r["Quy cách xốp"]), "sl": sl_v, "cs": cs_v, "rm": rm_v, "sm": safe_float(r["Phế (m)"]),
-                        "ul": safe_float(r["Độ dài ghép được (m)"], sl_v), "tm": float(sl_v * cs_v), "ta": float(rm_v * (1.02 if "1020" in str(r["Khổ tôn"]) else 1.17)),
-                        "im": "Đã ghép" if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) else "Chưa ghép", "re": safe_str(r["Nguyên nhân"]), "fb": safe_str(r["Lỗi do ai"]),
-                        "moc": safe_str(r["Đơn hàng ghép"]), "mbu": safe_str(r["Ai là người ghép"]), "ml": safe_float(r["Ghép sang kích thước (m)"]),
-                        "ms": safe_int(r["Số lượng tấm ghép"]), "id": int(r["id"])
-                    })
-                conn.commit()
-            st.cache_data.clear()
-            st.session_state["msg_success"] = "Đã lưu bảng Panel thành công!"
-            st.rerun()
+        
+        if da_dang_nhap:
+            col_pn_btn1, col_pn_btn2 = st.columns([3, 7])
+            with col_pn_btn1:
+                if st.button("💾 Lưu thay đổi trên bảng Panel", type="primary", key="btn_save_pn_manual"):
+                    with engine.connect() as conn:
+                        for idx, r in edited_pn.iterrows():
+                            sl_v = safe_float(r["Dài 1 tấm (m)"])
+                            cs_v = safe_int(r["Số tấm còn"])
+                            rm_v = safe_float(r["Còn lại mét tồn kho"])
+                            conn.execute(text("""
+                                UPDATE panel_inventory SET ngay_loi=:nl, source_warehouse=:wh, vi_tri_de=:vt, order_code=:oc, brand=:br,
+                                steel_thickness=:st, color=:co, core_thickness=:ct, kho_ton=:kt, foam_type=:fo, sheet_length=:sl, current_sheets=:cs,
+                                remaining_meters=:rm, scrap_meters=:sm, usable_length=:ul, total_meters=:tm, total_area_m2=:ta, is_matched=:im,
+                                reason=:re, fault_by=:fb, matched_order_code=:moc, matched_by_user=:mbu, matched_length=:ml, matched_sheets=:ms
+                                WHERE id=:id
+                            """), {
+                                "nl": safe_date(r["Ngày lỗi"]), "wh": safe_str(r["Kho"]), "vt": safe_str(r["Vị trí"]), "oc": safe_str(r["Mã đơn"]),
+                                "br": safe_str(r["Hãng tôn"]), "st": safe_float(r["Dày tôn (mm)"]), "co": safe_str(r["Màu"]), "ct": safe_str(r["Độ dày Panel"]),
+                                "kt": safe_str(r["Khổ tôn"]), "fo": safe_str(r["Quy cách xốp"]), "sl": sl_v, "cs": cs_v, "rm": rm_v, "sm": safe_float(r["Phế (m)"]),
+                                "ul": safe_float(r["Độ dài ghép được (m)"], sl_v), "tm": float(sl_v * cs_v), "ta": float(rm_v * (1.02 if "1020" in str(r["Khổ tôn"]) else 1.17)),
+                                "im": "Đã ghép" if "Đã ghép" in str(r["Hàng đã xử lý ghép"]) else "Chưa ghép", "re": safe_str(r["Nguyên nhân"]), "fb": safe_str(r["Lỗi do ai"]),
+                                "moc": safe_str(r["Đơn hàng ghép"]), "mbu": safe_str(r["Ai là người ghép"]), "ml": safe_float(r["Ghép sang kích thước (m)"]),
+                                "ms": safe_int(r["Số lượng tấm ghép"]), "id": int(r["id"])
+                            })
+                        conn.commit()
+                    st.cache_data.clear()
+                    st.session_state["msg_success"] = "Đã lưu bảng Panel thành công!"
+                    st.rerun()
+
+            # NÚT XÓA DÒNG CHO PANEL
+            if not df_pn.empty:
+                with st.expander("🗑️ Xóa dòng Panel bị nhập sai"):
+                    c_del_pn1, c_del_pn2 = st.columns([3, 2])
+                    with c_del_pn1:
+                        id_del_pn = st.selectbox("Chọn ID Panel cần xóa:", df_pn['id'].tolist(), key="del_pn_sel_box")
+                    with c_del_pn2:
+                        st.write("")
+                        st.write("")
+                        if st.button("❌ Xóa dòng Panel này", key="btn_del_pn_execute"):
+                            target_del_pn = int(id_del_pn)
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM panel_inventory WHERE id = :id"), {"id": target_del_pn})
+                                conn.commit()
+                            st.cache_data.clear()
+                            st.session_state["msg_success"] = f"Đã xóa vĩnh viễn dòng Panel ID {target_del_pn}!"
+                            st.rerun()
 
 # =============================================================
-# 2. NHẬP KHO HÓA CHẤT (ẢNH 3: QUY CÁCH KG NHẬP TAY)
+# 2. NHẬP KHO HÓA CHẤT (QUY CÁCH KG NHẬP TAY & CÓ NÚT XÓA)
 # =============================================================
 elif lua_chon == "📥 Nhập kho Hóa chất":
     st.title("📥 Nhập Kho Hóa Chất")
@@ -579,7 +649,6 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
             ten_hc = st.selectbox("Loại Hóa Chất *", DANH_SACH_HOA_CHAT)
             so_phuy_nhap = st.number_input("Số lượng (Phuy) *", min_value=0.1, value=1.0, step=1.0)
         with col_hc2:
-            # QUY CÁCH KG Ở MỤC NHẬP KHO CHUYỂN SANG NHẬP TAY (ẢNH 3)
             default_kg_nhap = 250.0 if "ISO" in ten_hc else 220.0
             kg_per_phuy = st.number_input("Quy cách trọng lượng (Kg / Phuy) *", min_value=1.0, value=default_kg_nhap, step=1.0)
             ghi_chu_hc = st.text_input("Ghi chú / Số lô sản xuất", placeholder="Ví dụ: Lô SX ngày...")
@@ -643,6 +712,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                 st.session_state["msg_success"] = "Đã cập nhật thay đổi lịch sử nhập kho hóa chất thành công!"
                 st.rerun()
                 
+        # NÚT XÓA DÒNG NHẬP KHO HÓA CHẤT
         with st.expander("🗑️ Xóa dòng nhập kho bị sai"):
             c_del_im1, c_del_im2 = st.columns([3, 2])
             with c_del_im1:
@@ -659,7 +729,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 3. NHẬT KÝ SẢN XUẤT HÓA CHẤT (ẢNH 1: 4 BỘ PHẬN & ẢNH 2: KG NHẬP TAY)
+# 3. NHẬT KÝ SẢN XUẤT HÓA CHẤT (4 BỘ PHẬN & KG NHẬP TAY & CÓ NÚT XÓA)
 # =============================================================
 elif lua_chon == "📝 Nhật ký SX Hóa chất":
     st.title("📝 Nhật Ký Sản Xuất Hóa Chất")
@@ -668,10 +738,8 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
         with c_nk1:
             ngay_sx_hc = st.date_input("Ngày sản xuất", datetime.date.today())
             ten_hc_sx = st.selectbox("Loại Hóa Chất *", DANH_SACH_HOA_CHAT)
-            # DANH SÁCH BỘ PHẬN SỬ DỤNG CHUẨN THEO ẢNH 1
             bo_phan_sd = st.selectbox("Bộ phận sử dụng *", DANH_SACH_BO_PHAN_SD)
         with c_nk2:
-            # QUY CÁCH KG Ở MỤC NHẬT KÝ CHUYỂN SANG NHẬP TAY (ẢNH 2)
             default_kg_sx = 250.0 if "ISO" in ten_hc_sx else 220.0
             kg_quy_cach_sx = st.number_input("Quy cách Phuy nguyên (Kg/Phuy) *", min_value=1.0, value=default_kg_sx, step=1.0)
 
@@ -765,6 +833,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                 st.session_state["msg_success"] = "Đã cập nhật thay đổi nhật ký sản xuất hóa chất thành công!"
                 st.rerun()
 
+        # NÚT XÓA DÒNG NHẬT KÝ SẢN XUẤT
         with st.expander("🗑️ Xóa dòng nhật ký SX bị sai"):
             c_del_sx1, c_del_sx2 = st.columns([3, 2])
             with c_del_sx1:
@@ -781,7 +850,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC (CÔNG THỨC CHUẨN XÁC)
+# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)

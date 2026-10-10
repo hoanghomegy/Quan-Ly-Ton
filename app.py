@@ -864,7 +864,7 @@ elif lua_chon == "➕ Nhập lỗi Panel":
             st.rerun()
 
 # =============================================================
-# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN TỰ ĐỘNG (ĐẦY ĐỦ CẮT TỪ ĐÂU XUỐNG ĐÂU & TRỪ TỒN)
+# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN TỰ ĐỘNG (ĐÃ SỬA CẬP NHẬT ID TỨC THÌ)
 # =============================================================
 elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
     tab_ghep_ton, tab_ghep_pk, tab_ghep_pn = st.tabs(["✂️ Ghép Tôn tấm", "🛠️ Xuất / Ghép Phụ kiện", "🧱 Xuất / Ghép Panel"])
@@ -934,29 +934,30 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                         st.success(f"🎯 Đã tìm thấy **{len(df_sorted)}** vị trí tôn lỗi đạt chuẩn ghép:")
                         st.dataframe(df_sorted, width='stretch')
 
-                        # FORM GHÉP ĐƠN TỰ ĐỘNG TÍNH PHẾ VÀ TRỪ TỒN KHO
+                        # ĐƯA Ô CHỌN ID RA NGOÀI FORM ĐỂ TỰ ĐỘNG CẬP NHẬT KÍCH THƯỚC NGAY LẬP TỨC KHI CHỌN ID MỚI
                         st.markdown("### 📝 Điền thông tin ghép đơn và tự động xuất kho:")
+                        danh_sach_id_tim_duoc = df_sorted['id'].tolist() if 'df_sorted' in locals() else df_matched['id'].tolist()
+                        id_ghep = st.selectbox("Chọn ID lô tôn cần lấy ghép:", danh_sach_id_tim_duoc, key="sel_id_ghep_dynamic")
+                        
+                        r_target = df_matched[df_matched['id'] == id_ghep].iloc[0]
+                        L_goc = safe_float(r_target['Dài (m)'])
+                        L_usable = safe_float(r_target['Độ dài ghép được (m)'], L_goc)
+                        T_ton = safe_int(r_target['Số tấm còn'])
+                        
+                        st.info(f"Đang chọn Lô ID **{id_ghep}** | Hãng: **{r_target['Hãng']}** | Màu: **{r_target['Màu']}** | Vị trí: **{r_target['Vị trí']}**\n* Kích thước gốc: **{L_goc:.2f} m** (Dài ghép được: **{L_usable:.2f} m**) | Số lượng tồn: **{T_ton} tấm**")
+
                         with st.form("form_confirm_ghep_ton_now"):
-                            id_ghep = st.selectbox("Chọn ID lô tôn cần lấy ghép:", df_sorted['id'].tolist())
-                            r_target = df_sorted[df_sorted['id'] == id_ghep].iloc[0]
-                            
-                            L_goc = safe_float(r_target['Dài (m)'])
-                            L_usable = safe_float(r_target['Độ dài ghép được (m)'], L_goc)
-                            T_ton = safe_int(r_target['Số tấm còn'])
-                            
-                            st.info(f"Đang chọn Lô ID **{id_ghep}** | Hãng: **{r_target['Hãng']}** | Màu: **{r_target['Màu']}** | Vị trí: **{r_target['Vị trí']}**\n* Kích thước gốc: **{L_goc:.2f} m** (Dài ghép được: **{L_usable:.2f} m**) | Số lượng tồn: **{T_ton} tấm**")
-                            
                             cg_r1, cg_r2, cg_r3 = st.columns(3)
                             with cg_r1:
                                 ma_moi = st.text_input("Mã đơn hàng ghép vào *", placeholder="Ví dụ: DH0809...").strip()
                             with cg_r2:
-                                cut_from = st.number_input("Ghép từ kích thước (m) *", value=L_usable, step=0.1, disabled=True)
+                                cut_from = st.number_input("Ghép từ kích thước (m)", value=L_usable, step=0.1, disabled=True, key=f"cfrom_{id_ghep}")
                             with cg_r3:
-                                cut_to = st.number_input("Xuống kích thước (m) *", value=p["dai"], min_value=0.1, max_value=float(L_usable), step=0.1)
+                                cut_to = st.number_input("Xuống kích thước (m) *", value=p["dai"], min_value=0.1, max_value=float(L_usable), step=0.1, key=f"cto_{id_ghep}")
 
                             cg_r4, cg_r5 = st.columns(2)
                             with cg_r4:
-                                tam_ghep = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=T_ton, value=1)
+                                tam_ghep = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=T_ton, value=1, key=f"tghep_{id_ghep}")
                             with cg_r5:
                                 nguoi_ghep = st.text_input("Tên nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "").strip()
 
@@ -1080,20 +1081,21 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                     st.success(f"🎯 Tìm thấy {len(df_pk_matched)} vị trí phụ kiện đủ điều kiện:")
                     st.dataframe(df_pk_matched, width='stretch')
 
+                    # ĐƯA Ô CHỌN ID PHỤ KIỆN RA NGOÀI FORM
+                    pk_id_chon = st.selectbox("Chọn ID phụ kiện muốn lấy:", df_pk_matched['id'].tolist(), key="sel_pk_id_dynamic")
+                    r_pk = df_pk_matched[df_pk_matched['id'] == pk_id_chon].iloc[0]
+                    
+                    pk_L_goc = safe_float(r_pk['Dài 1 tấm (m)'])
+                    pk_T_ton = safe_int(r_pk['Số tấm còn'])
+                    
                     with st.form("form_confirm_ghep_pk_now"):
-                        pk_id_chon = st.selectbox("Chọn ID phụ kiện muốn lấy", df_pk_matched['id'].tolist())
-                        r_pk = df_pk_matched[df_pk_matched['id'] == pk_id_chon].iloc[0]
-                        
-                        pk_L_goc = safe_float(r_pk['Dài 1 tấm (m)'])
-                        pk_T_ton = safe_int(r_pk['Số tấm còn'])
-                        
                         g_pk1, g_pk2, g_pk3 = st.columns(3)
                         with g_pk1:
                             pk_don_moi = st.text_input("Mã đơn mới ghép vào *", key="pk_don_moi").strip()
                         with g_pk2:
-                            pk_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pk_T_ton, value=1, key="pk_tam_lay")
+                            pk_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pk_T_ton, value=1, key=f"pktam_{pk_id_chon}")
                         with g_pk3:
-                            pk_cut_to = st.number_input("Xuống kích thước (m) *", value=pk_p["dai"], min_value=0.1, max_value=pk_L_goc, step=0.1, key="pk_cut_to")
+                            pk_cut_to = st.number_input("Xuống kích thước (m) *", value=pk_p["dai"], min_value=0.1, max_value=pk_L_goc, step=0.1, key=f"pkcut_{pk_id_chon}")
 
                         g_pk4, g_pk5 = st.columns(2)
                         with g_pk4:
@@ -1181,21 +1183,22 @@ elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
                     st.success(f"🎯 Tìm thấy {len(df_pn_matched)} vị trí Panel đủ điều kiện ghép:")
                     st.dataframe(df_pn_matched, width='stretch')
 
+                    # ĐƯA Ô CHỌN ID PANEL RA NGOÀI FORM
+                    pn_id_chon = st.selectbox("Chọn ID Panel muốn lấy:", df_pn_matched['id'].tolist(), key="sel_pn_id_dynamic")
+                    r_pn = df_pn_matched[df_pn_matched['id'] == pn_id_chon].iloc[0]
+                    
+                    pn_L_goc = safe_float(r_pn['Dài 1 tấm (m)'])
+                    pn_T_ton = safe_int(r_pn['Số tấm còn'])
+                    he_so = 1.02 if "1020" in r_pn['Khổ tôn'] else 1.17
+
                     with st.form("form_confirm_ghep_pn_now"):
-                        pn_id_chon = st.selectbox("Chọn ID Panel muốn lấy", df_pn_matched['id'].tolist())
-                        r_pn = df_pn_matched[df_pn_matched['id'] == pn_id_chon].iloc[0]
-                        
-                        pn_L_goc = safe_float(r_pn['Dài 1 tấm (m)'])
-                        pn_T_ton = safe_int(r_pn['Số tấm còn'])
-                        he_so = 1.02 if "1020" in r_pn['Khổ tôn'] else 1.17
-                        
                         g_pn1, g_pn2, g_pn3 = st.columns(3)
                         with g_pn1:
                             pn_don_moi = st.text_input("Mã đơn hàng ghép vào *", key="pn_don_moi").strip()
                         with g_pn2:
-                            pn_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pn_T_ton, value=1, key="pn_tam_lay")
+                            pn_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pn_T_ton, value=1, key=f"pntam_{pn_id_chon}")
                         with g_pn3:
-                            pn_cut_to = st.number_input("Xuống kích thước (m) *", value=pn_p["dai"], min_value=0.1, max_value=pn_L_goc, step=0.1, key="pn_cut_to")
+                            pn_cut_to = st.number_input("Xuống kích thước (m) *", value=pn_p["dai"], min_value=0.1, max_value=pn_L_goc, step=0.1, key=f"pncut_{pn_id_chon}")
 
                         pn_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pn_nv_lay")
 

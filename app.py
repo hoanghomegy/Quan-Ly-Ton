@@ -302,7 +302,6 @@ DANH_SACH_MAU_PANEL = ["Trắng", "Vân gỗ"]
 DANH_SACH_TRANG_THAI_PK = ["🔴 Chưa xử lý", "🟢 Đã xử lý", "🟡 Đã xả"]
 DANH_SACH_TRANG_THAI_TON_PANEL = ["🔴 Chưa ghép", "🟢 Đã ghép"]
 
-# BẢNG XẾP HẠNG CẤP XỐP CHO GHÉP TỰ ĐỘNG
 XOP_RANKS = {
     "Không xốp": 0, 
     "Xốp Eco": 1, 
@@ -643,7 +642,614 @@ if lua_chon == "📋 Tra cứu tồn kho":
                             st.rerun()
 
 # =============================================================
-# 2. NHẬP KHO HÓA CHẤT
+# 2. NHẬP LỖI TÔN
+# =============================================================
+elif lua_chon == "➕ Nhập lỗi Tôn":
+    st.title("➕ Nhập hàng lỗi phát sinh cho Tôn")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        ngay_loi_ton = st.date_input("Ngày phát sinh lỗi", datetime.date.today(), key="nl_ton_date")
+        kho_ton = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="wh_ton_sel")
+        don_ton = st.text_input("Mã đơn hàng", key="oc_ton_txt").strip()
+        vi_tri_ton = st.selectbox("Vị trí để", DANH_SACH_VI_TRI, key="vt_ton_sel")
+    with col_b:
+        hang_ton = st.selectbox("Hãng tôn *", DANH_SACH_HANG_TON, key="br_ton_sel")
+        mau_ton = st.text_input("Màu sắc *", key="co_ton_txt").strip()
+        day_ton = st.number_input("Độ dày (dem/mm)", value=0.40, step=0.05, key="th_ton_num")
+        song_ton = st.selectbox("Loại sóng", DANH_SACH_SONG, key="cr_ton_sel")
+    with col_c:
+        loai_ton = st.selectbox("Loại tôn", DANH_SACH_LOAI_TON, key="tt_ton_sel")
+        quy_cach_xop = st.selectbox("Quy cách xốp / ngói", DANH_SACH_XOP, key="fo_ton_sel")
+        loi_ai_ton = st.text_input("Lỗi do ai", key="fb_ton_txt").strip()
+        ly_do_chon_ton = st.selectbox("Nguyên nhân lỗi", DANH_SACH_NGUYEN_NHAN_CHUNG, key="re_ton_sel")
+        ly_do_chi_tiet_ton = st.text_area("Ghi chú chi tiết", key="re_ton_note") if ly_do_chon_ton == "Lỗi khác" else ""
+
+    col_btn_spec1, col_btn_spec2 = st.columns([3, 7])
+    with col_btn_spec1:
+        if st.button("➕ Thêm quy cách kích thước (Add)", key="btn_add_spec_ton"):
+            st.session_state.num_specs_ton += 1
+            st.rerun()
+    with col_btn_spec2:
+        if st.session_state.num_specs_ton > 1 and st.button("➖ Bớt dòng", key="btn_del_spec_ton"):
+            st.session_state.num_specs_ton -= 1
+            st.rerun()
+
+    specs_ton_data = []
+    for i in range(st.session_state.num_specs_ton):
+        if kho_ton == "Kho hàng lỗi trả về":
+            c_sp1, c_sp2, c_sp3 = st.columns(3)
+            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=6.0, step=0.1, key=f"ton_len_{i}")
+            with c_sp2: u_val = st.number_input(f"Dài ghép được (m) #{i+1} *", value=d_val, step=0.1, key=f"ton_ulen_{i}")
+            with c_sp3: q_val = st.number_input(f"Số tấm #{i+1} *", value=5, min_value=1, step=1, key=f"ton_qty_{i}")
+            specs_ton_data.append((d_val, q_val, u_val))
+        else:
+            c_sp1, c_sp2 = st.columns(2)
+            with c_sp1: d_val = st.number_input(f"Dài 1 tấm (m) #{i+1} *", value=6.0, step=0.1, key=f"ton_len_{i}")
+            with c_sp2: q_val = st.number_input(f"Số tấm #{i+1} *", value=5, min_value=1, step=1, key=f"ton_qty_{i}")
+            specs_ton_data.append((d_val, q_val, d_val))
+
+    if st.button("💾 Lưu tôn lỗi vào kho", type="primary", key="btn_save_ton_all"):
+        if not hang_ton or not mau_ton:
+            st.warning("⚠️ Vui lòng điền đủ Hãng và Màu!")
+        else:
+            with engine.connect() as conn:
+                for d_v, q_v, u_v in specs_ton_data:
+                    d_float, q_int, u_float = safe_float(d_v), safe_int(q_v), safe_float(u_v, safe_float(d_v))
+                    t_meters = float(d_float * q_int)
+                    conn.execute(text("""
+                    INSERT INTO inventory (ngay_loi, source_warehouse, order_code, vi_tri_de, brand, thickness, color, 
+                                           corrugation_type, ton_type, foam_type, sheet_length, usable_length,
+                                           current_sheets, total_meters, remaining_meters, scrap_meters, is_matched, reason, fault_by)
+                    VALUES (:nl, :wh, :oc, :vt, :br, :th, :co, :cr, :tt, :fo, :sl, :ul, :cs, :tm, :rm, 0.0, 'Chưa ghép', :re, :fb)
+                    """), {
+                        "nl": safe_date(ngay_loi_ton), "wh": safe_str(kho_ton), "oc": don_ton or "Không có", "vt": safe_str(vi_tri_ton), 
+                        "br": safe_str(hang_ton), "th": safe_float(day_ton), "co": safe_str(mau_ton), "cr": safe_str(song_ton), 
+                        "tt": safe_str(loai_ton), "fo": safe_str(quy_cach_xop), "sl": d_float, "ul": u_float, "cs": q_int, 
+                        "tm": t_meters, "rm": t_meters, "re": f"Lỗi khác: {ly_do_chi_tiet_ton.strip()}" if ly_do_chon_ton == "Lỗi khác" else ly_do_chon_ton,
+                        "fb": safe_str(loi_ai_ton)
+                    })
+                conn.commit()
+            st.cache_data.clear()
+            st.session_state.num_specs_ton = 1
+            st.session_state["msg_success"] = f"✅ Đã lưu tôn lỗi {hang_ton}!"
+            st.rerun()
+
+# =============================================================
+# 3. NHẬP LỖI PHỤ KIỆN
+# =============================================================
+elif lua_chon == "➕ Nhập lỗi Phụ kiện":
+    st.title("➕ Nhập hàng lỗi cho Phụ kiện")
+    col_p1, col_p2, col_p3 = st.columns(3)
+    with col_p1:
+        ngay_loi_pk = st.date_input("Ngày lỗi", datetime.date.today(), key="pk_ngay")
+        pk_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pk_kho")
+        pk_customer = st.text_input("🏢 Tên Khách Hàng", key="pk_customer").strip()
+        pk_don = st.text_input("Mã đơn", key="pk_don").strip()
+        pk_loai = st.selectbox("Loại PK", DANH_SACH_PHU_KIEN, key="pk_loai")
+        pk_vi_tri = st.selectbox("Vị trí", DANH_SACH_VI_TRI, key="pk_vt")
+    with col_p2:
+        pk_ten = st.text_input("Tên phụ kiện *", key="pk_ten").strip()
+        pk_kho_phukien = st.text_input("Khổ PK", key="pk_kho_pk").strip()
+        pk_mau = st.text_input("Màu sắc *", key="pk_mau").strip()
+        pk_day = st.number_input("Độ dày (dem/mm)", value=0.40, step=0.05, key="pk_day")
+    with col_p3:
+        pk_loi_ai = st.text_input("Lỗi do ai", key="pk_loi_ai").strip()
+        pk_ly_do_chon = st.selectbox("Nguyên nhân", DANH_SACH_NGUYEN_NHAN_CHUNG, key="pk_nn")
+        pk_ly_do_chi_tiet = st.text_area("Ghi chú", key="pk_note") if pk_ly_do_chon == "Lỗi khác" else ""
+
+    col_btn_pk1, col_btn_pk2 = st.columns([3, 7])
+    with col_btn_pk1:
+        if st.button("➕ Thêm quy cách kích thước (Add)", key="btn_add_spec_pk"):
+            st.session_state.num_specs_pk += 1
+            st.rerun()
+    with col_btn_pk2:
+        if st.session_state.num_specs_pk > 1 and st.button("➖ Bớt dòng", key="btn_del_spec_pk"):
+            st.session_state.num_specs_pk -= 1
+            st.rerun()
+
+    specs_pk_data = []
+    for i in range(st.session_state.num_specs_pk):
+        if pk_kho == "Kho hàng lỗi trả về":
+            c_sp1, c_sp2, c_sp3 = st.columns(3)
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=2.0, step=0.1, key=f"pk_len_{i}")
+            with c_sp2: u_val = st.number_input(f"Dài ghép được (m) #{i+1} *", value=d_val, step=0.1, key=f"pk_ulen_{i}")
+            with c_sp3: q_val = st.number_input(f"Số tấm #{i+1} *", value=5, min_value=1, step=1, key=f"pk_qty_{i}")
+            specs_pk_data.append((d_val, q_val, u_val))
+        else:
+            c_sp1, c_sp2 = st.columns(2)
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=2.0, step=0.1, key=f"pk_len_{i}")
+            with c_sp2: q_val = st.number_input(f"Số tấm #{i+1} *", value=5, min_value=1, step=1, key=f"pk_qty_{i}")
+            specs_pk_data.append((d_val, q_val, d_val))
+
+    trang_thai_chon_pk = st.selectbox("Trạng thái:", DANH_SACH_TRANG_THAI_PK, key="pk_tt_init")
+    c_xl1, c_xl2 = st.columns(2)
+    with c_xl1: don_xu_ly = st.text_input("Đơn ghép (nếu đã xử lý)", key="pk_don_ghep_input").strip()
+    with c_xl2: nv_ghep_pk = st.text_input("NV ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pk_nv_ghep_input").strip()
+
+    if st.button("💾 Lưu phụ kiện vào kho", type="primary", key="btn_save_pk_all"):
+        if pk_ten and pk_mau:
+            with engine.connect() as conn:
+                for d_v, q_v, u_v in specs_pk_data:
+                    pk_dai, pk_tam, pk_ulen = safe_float(d_v), safe_int(q_v), safe_float(u_v, safe_float(d_v))
+                    conn.execute(text("""
+                    INSERT INTO accessory_inventory (ngay_loi, source_warehouse, customer_name, vi_tri_de, order_code, 
+                                                     accessory_type, brand, kho_phu_kien, thickness, color, sheet_length, usable_length,
+                                                     current_sheets, total_meters, trang_thai, don_da_ghep, nguoi_ghep, reason, fault_by)
+                    VALUES (:nl, :wh, :cust, :vt, :oc, :at, :br, :kpk, :th, :co, :sl, :ul, :cs, :tm, :tt, :dg, :ng, :re, :fb)
+                    """), {
+                        "nl": safe_date(ngay_loi_pk), "wh": safe_str(pk_kho), "cust": safe_str(pk_customer), "vt": safe_str(vi_tri), 
+                        "oc": pk_don or "Không có", "at": safe_str(pk_loai), "br": safe_str(pk_ten), "kpk": safe_str(pk_kho_phukien), 
+                        "th": safe_float(pk_day), "co": safe_str(pk_mau), "sl": pk_dai, "ul": pk_ulen, "cs": 0 if "Đã xử lý" in trang_thai_chon_pk else pk_tam, 
+                        "tm": 0.0 if "Đã xử lý" in trang_thai_chon_pk else float(pk_dai * pk_tam),
+                        "tt": trang_thai_chon_pk.replace("🔴 ", "").replace("🟢 ", "").replace("🟡 ", ""),
+                        "dg": safe_str(don_xu_ly) if "Đã xử lý" in trang_thai_chon_pk else None, "ng": safe_str(nv_ghep_pk) if "Đã xử lý" in trang_thai_chon_pk else None,
+                        "re": safe_str(pk_ly_do_chi_tiet) if pk_ly_do_chon == "Lỗi khác" else pk_ly_do_chon, "fb": safe_str(pk_loi_ai)
+                    })
+                conn.commit()
+            st.cache_data.clear()
+            st.session_state.num_specs_pk = 1
+            st.session_state["msg_success"] = f"✅ Đã lưu phụ kiện {pk_ten}!"
+            st.rerun()
+
+# =============================================================
+# 4. NHẬP LỖI PANEL
+# =============================================================
+elif lua_chon == "➕ Nhập lỗi Panel":
+    st.title("➕ Nhập hàng lỗi phát sinh cho Panel")
+    col_pn1, col_pn2, col_pn3 = st.columns(3)
+    with col_pn1:
+        ngay_loi_pn = st.date_input("Ngày lỗi", datetime.date.today(), key="pn_ngay")
+        pn_kho = st.selectbox("Kho lưu", ["Kho hàng lỗi NM", "Kho hàng lỗi trả về"], key="pn_kho")
+        pn_don = st.text_input("Mã đơn", key="pn_don").strip()
+        vi_tri_pn = st.selectbox("Vị trí", DANH_SACH_VI_TRI, key="pn_vt")
+    with col_pn2:
+        pn_hang = st.text_input("Hãng tôn *", key="pn_hang").strip()
+        pn_day_ton = st.number_input("Độ dày tôn mặt ngoài (dem/mm)", value=0.40, step=0.05, key="pn_day_ton")
+        pn_mau = st.selectbox("Màu sắc", DANH_SACH_MAU_PANEL, key="pn_mau")
+        pn_core = st.selectbox("Độ dày Panel", DANH_SACH_DO_DAY_PANEL, key="pn_core")
+        pn_kho_ton = st.selectbox("Khổ tôn", DANH_SACH_KHO_PANEL, key="pn_kho_ton")
+    with col_pn3:
+        pn_xop_quy_cach = st.selectbox("Quy cách xốp", DANH_SACH_XOP_PANEL, key="pn_xop")
+        pn_loi_ai = st.text_input("Lỗi do ai", key="pn_loi_ai").strip()
+        pn_ly_do_chon = st.selectbox("Nguyên nhân", DANH_SACH_NGUYEN_NHAN_PANEL, key="pn_nn")
+        pn_ly_do_chi_tiet = st.text_area("Ghi chú", key="pn_note") if pn_ly_do_chon == "Lỗi khác" else ""
+
+    col_btn_pn1, col_btn_pn2 = st.columns([3, 7])
+    with col_btn_pn1:
+        if st.button("➕ Thêm quy cách kích thước (Add)", key="btn_add_spec_pn"):
+            st.session_state.num_specs_pn += 1
+            st.rerun()
+    with col_btn_pn2:
+        if st.session_state.num_specs_pn > 1 and st.button("➖ Bớt dòng", key="btn_del_spec_pn"):
+            st.session_state.num_specs_pn -= 1
+            st.rerun()
+
+    specs_pn_data = []
+    for i in range(st.session_state.num_specs_pn):
+        if pn_kho == "Kho hàng lỗi trả về":
+            c_sp1, c_sp2, c_sp3 = st.columns(3)
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp2: u_val = st.number_input(f"Dài ghép được (m) #{i+1} *", value=d_val, step=0.1, key=f"pn_ulen_{i}")
+            with c_sp3: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
+            specs_pn_data.append((d_val, q_val, u_val))
+        else:
+            c_sp1, c_sp2 = st.columns(2)
+            with c_sp1: d_val = st.number_input(f"Dài (m) #{i+1} *", value=5.0, step=0.1, key=f"pn_len_{i}")
+            with c_sp2: q_val = st.number_input(f"Số tấm #{i+1} *", value=4, min_value=1, step=1, key=f"pn_qty_{i}")
+            specs_pn_data.append((d_val, q_val, d_val))
+
+    if st.button("💾 Lưu Panel vào kho", type="primary", key="btn_save_pn_all"):
+        if pn_hang:
+            he_so_rong = 1.02 if "1020" in pn_kho_ton else 1.17
+            with engine.connect() as conn:
+                for d_v, q_v, u_v in specs_pn_data:
+                    pn_dai, pn_tam, pn_ulen = safe_float(d_v), safe_int(q_v), safe_float(u_v, safe_float(d_v))
+                    m_val = float(pn_dai * pn_tam)
+                    conn.execute(text("""
+                    INSERT INTO panel_inventory (ngay_loi, source_warehouse, vi_tri_de, order_code, brand, steel_thickness, color, 
+                                                 core_thickness, kho_ton, foam_type, sheet_length, usable_length,
+                                                 current_sheets, total_meters, remaining_meters, scrap_meters, total_area_m2, is_matched, reason, fault_by)
+                    VALUES (:nl, :wh, :vt, :oc, :br, :st, :co, :ct, :kt, :fo, :sl, :ul, :cs, :tm, :rm, 0.0, :ta, 'Chưa ghép', :re, :fb)
+                    """), {
+                        "nl": safe_date(ngay_loi_pn), "wh": safe_str(pn_kho), "vt": safe_str(vi_tri_pn), "oc": pn_don or "Không có", 
+                        "br": safe_str(pn_hang), "st": safe_float(pn_day_ton), "co": safe_str(pn_mau), "ct": safe_str(pn_core), 
+                        "kt": safe_str(pn_kho_ton), "fo": safe_str(pn_xop_quy_cach), "sl": pn_dai, "ul": pn_ulen, "cs": pn_tam, 
+                        "tm": m_val, "rm": m_val, "ta": float(m_val * he_so_rong), "re": safe_str(pn_ly_do_chi_tiet) if pn_ly_do_chon == "Lỗi khác" else pn_ly_do_chon,
+                        "fb": safe_str(pn_loi_ai)
+                    })
+                conn.commit()
+            st.cache_data.clear()
+            st.session_state.num_specs_pn = 1
+            st.session_state["msg_success"] = f"✅ Đã lưu Panel {pn_hang}!"
+            st.rerun()
+
+# =============================================================
+# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN TỰ ĐỘNG (ĐẦY ĐỦ CẮT TỪ ĐÂU XUỐNG ĐÂU & TRỪ TỒN)
+# =============================================================
+elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
+    tab_ghep_ton, tab_ghep_pk, tab_ghep_pn = st.tabs(["✂️ Ghép Tôn tấm", "🛠️ Xuất / Ghép Phụ kiện", "🧱 Xuất / Ghép Panel"])
+    
+    # 5.1 GHÉP TÔN TẤM TỰ ĐỘNG
+    with tab_ghep_ton:
+        st.subheader("✂️ Tìm kiếm thông minh ghép Tôn mới")
+        with st.form("form_tim_kiem_ton"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                s_hang = st.selectbox("Hãng tôn", ["Tất cả"] + DANH_SACH_HANG_TON, key="gt_hang")
+                s_mau = st.text_input("Màu sắc cần (đen, xanh, đỏ...)", key="gt_mau").strip()
+                s_day = st.number_input("Độ dày yêu cầu tối thiểu (dem/mm)", value=0.35, step=0.05, key="gt_day")
+            with c2:
+                s_song = st.selectbox("Loại sóng", ["Tất cả"] + DANH_SACH_SONG, key="gt_song")
+                s_ton = st.selectbox("Loại tôn", ["Tất cả"] + DANH_SACH_LOAI_TON, key="gt_ton")
+                s_xop = st.selectbox("Cấp xốp tối thiểu", ["Tất cả"] + DANH_SACH_XOP, key="gt_xop")
+            with c3:
+                s_dai = st.number_input("Độ dài cần cắt ghép (m) *", value=1.5, step=0.1, key="gt_dai")
+                st.write("")
+                st.write("")
+                btn_tim_ton = st.form_submit_button("🔎 Quét kho tìm tôn tự động", type="primary")
+
+        if btn_tim_ton:
+            st.session_state.ton_search_params = {
+                "hang": s_hang, "mau": s_mau, "day": s_day,
+                "song": s_song, "ton": s_ton, "xop": s_xop, "dai": s_dai
+            }
+
+        if "ton_search_params" in st.session_state:
+            p = st.session_state.ton_search_params
+            df_all_ton = load_ton_data()
+            df_all_ton = df_all_ton[df_all_ton["Số tấm còn"] > 0].copy()
+
+            if not df_all_ton.empty:
+                df_matched = df_all_ton[df_all_ton["Độ dài ghép được (m)"] >= p["dai"]].copy()
+                
+                if p["day"] > 0:
+                    df_matched = df_matched[df_matched["Dày (mm)"].round(2) >= round(p["day"], 2)]
+
+                if p["hang"] != "Tất cả":
+                    df_matched = df_matched[df_matched["Hãng"] == p["hang"]]
+                if p["mau"]:
+                    df_matched = df_matched[df_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(p["mau"]) in xoa_dau_tieng_viet(x))]
+                if p["song"] != "Tất cả":
+                    df_matched = df_matched[df_matched["Sóng"] == p["song"]]
+                if p["ton"] != "Tất cả":
+                    df_matched = df_matched[df_matched["Loại tôn"] == p["ton"]]
+
+                if not df_matched.empty:
+                    if p["xop"] != "Tất cả":
+                        req_rank = XOP_RANKS.get(p["xop"], 0)
+                        df_matched['rank'] = df_matched['Quy cách xốp/ngói'].map(lambda x: XOP_RANKS.get(x, 0))
+                        df_final = df_matched[df_matched['rank'] >= req_rank].copy()
+                    else:
+                        df_final = df_matched.copy()
+                        df_final['rank'] = 0
+                        req_rank = 0
+
+                    if not df_final.empty:
+                        df_final['lech_xop'] = df_final['rank'] - req_rank
+                        df_final['lech_day'] = df_final['Dày (mm)'] - p["day"]
+                        df_final['du_dai'] = df_final['Độ dài ghép được (m)'] - p["dai"]
+                        
+                        df_sorted = df_final.sort_values(by=['lech_xop', 'lech_day', 'du_dai']).drop(columns=['rank', 'lech_xop', 'lech_day', 'du_dai'])
+
+                        st.success(f"🎯 Đã tìm thấy **{len(df_sorted)}** vị trí tôn lỗi đạt chuẩn ghép:")
+                        st.dataframe(df_sorted, width='stretch')
+
+                        # FORM GHÉP ĐƠN TỰ ĐỘNG TÍNH PHẾ VÀ TRỪ TỒN KHO
+                        st.markdown("### 📝 Điền thông tin ghép đơn và tự động xuất kho:")
+                        with st.form("form_confirm_ghep_ton_now"):
+                            id_ghep = st.selectbox("Chọn ID lô tôn cần lấy ghép:", df_sorted['id'].tolist())
+                            r_target = df_sorted[df_sorted['id'] == id_ghep].iloc[0]
+                            
+                            L_goc = safe_float(r_target['Dài (m)'])
+                            L_usable = safe_float(r_target['Độ dài ghép được (m)'], L_goc)
+                            T_ton = safe_int(r_target['Số tấm còn'])
+                            
+                            st.info(f"Đang chọn Lô ID **{id_ghep}** | Hãng: **{r_target['Hãng']}** | Màu: **{r_target['Màu']}** | Vị trí: **{r_target['Vị trí']}**\n* Kích thước gốc: **{L_goc:.2f} m** (Dài ghép được: **{L_usable:.2f} m**) | Số lượng tồn: **{T_ton} tấm**")
+                            
+                            cg_r1, cg_r2, cg_r3 = st.columns(3)
+                            with cg_r1:
+                                ma_moi = st.text_input("Mã đơn hàng ghép vào *", placeholder="Ví dụ: DH0809...").strip()
+                            with cg_r2:
+                                cut_from = st.number_input("Ghép từ kích thước (m) *", value=L_usable, step=0.1, disabled=True)
+                            with cg_r3:
+                                cut_to = st.number_input("Xuống kích thước (m) *", value=p["dai"], min_value=0.1, max_value=float(L_usable), step=0.1)
+
+                            cg_r4, cg_r5 = st.columns(2)
+                            with cg_r4:
+                                tam_ghep = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=T_ton, value=1)
+                            with cg_r5:
+                                nguoi_ghep = st.text_input("Tên nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "").strip()
+
+                            tam_ghep_val = safe_int(tam_ghep, 1)
+                            cut_to_val = safe_float(cut_to, p["dai"])
+                            
+                            met_xuat = float(tam_ghep_val * cut_to_val)
+                            phe_phat_sinh = float(tam_ghep_val * (L_usable - cut_to_val))
+                            tam_con_lai = T_ton - tam_ghep_val
+                            met_con_lai = float(tam_con_lai * L_goc)
+
+                            st.write(f"👉 **Kết quả tính toán tự động:**")
+                            c_k1, c_k2, c_k3 = st.columns(3)
+                            c_k1.success(f"🟢 Mét ghép thành công: **{met_xuat:.2f} m**")
+                            c_k2.warning(f"❌ Phế cắt phát sinh: **{phe_phat_sinh:.2f} m**")
+                            c_k3.info(f"📦 Còn lại cho đơn sau: **{tam_con_lai} tấm** ({met_con_lai:.2f} m)")
+
+                            btn_ghep_ton_submit = st.form_submit_button("✅ Xác nhận Ghép và Tự động trừ kho", type="primary")
+
+                            if btn_ghep_ton_submit:
+                                if not ma_moi:
+                                    st.error("Vui lòng điền mã đơn hàng mới ghép vào!")
+                                else:
+                                    target_ton_id = int(id_ghep)
+                                    trang_thai_moi = "Đã ghép" if tam_con_lai == 0 else "Chưa ghép"
+                                    
+                                    phe_cu = safe_float(r_target['Phế (m)'])
+                                    tong_phe_lo = phe_cu + phe_phat_sinh
+                                    
+                                    with engine.connect() as conn:
+                                        conn.execute(text("""
+                                            UPDATE inventory 
+                                            SET current_sheets = :tc, 
+                                                total_meters = :mc, 
+                                                remaining_meters = :rm, 
+                                                scrap_meters = :sm,
+                                                is_matched = :im, 
+                                                matched_order_code = :moc, 
+                                                matched_by_user = :mbu, 
+                                                matched_length = :ml, 
+                                                matched_sheets = :ms 
+                                            WHERE id = :id
+                                        """), {
+                                            "tc": tam_con_lai, 
+                                            "mc": met_con_lai, 
+                                            "rm": met_con_lai, 
+                                            "sm": tong_phe_lo,
+                                            "im": trang_thai_moi,
+                                            "moc": safe_str(ma_moi), 
+                                            "mbu": safe_str(nguoi_ghep), 
+                                            "ml": cut_to_val,
+                                            "ms": tam_ghep_val, 
+                                            "id": target_ton_id
+                                        })
+                                        
+                                        conn.execute(text("""
+                                            INSERT INTO matching_history (
+                                                inventory_id, new_order_code, matched_sheets, 
+                                                matched_length, matched_meters, matched_by, matched_date
+                                            ) VALUES (
+                                                :iid, :od, :ms, :ml, :mm, :mb, CURRENT_DATE
+                                            )
+                                        """), {
+                                            "iid": target_ton_id, 
+                                            "od": safe_str(ma_moi), 
+                                            "ms": tam_ghep_val, 
+                                            "ml": cut_to_val, 
+                                            "mm": met_xuat, 
+                                            "mb": safe_str(nguoi_ghep)
+                                        })
+                                        conn.commit()
+                                        
+                                    st.cache_data.clear()
+                                    del st.session_state.ton_search_params
+                                    st.session_state["msg_success"] = f"✅ Đã ghép {tam_ghep_val} tấm từ {L_usable:.2f}m xuống {cut_to_val:.2f}m vào đơn {ma_moi}! Tạo ra {phe_phat_sinh:.2f}m phế. Lô còn lại {tam_con_lai} tấm."
+                                    st.rerun()
+                    else:
+                        st.warning("⚠️ Có lô phù hợp kích thước nhưng cấp xốp mềm hơn yêu cầu!")
+                else:
+                    st.info("Không tìm thấy tấm tôn nào thỏa mãn điều kiện yêu cầu.")
+            else:
+                st.info("Kho hiện tại không có tôn lỗi tồn kho.")
+
+    # 5.2 GHÉP PHỤ KIỆN
+    with tab_ghep_pk:
+        st.subheader("🛠️ Tìm kiếm & Xuất ghép Phụ kiện")
+        with st.form("form_tim_kiem_pk"):
+            cp1, cp2, cp3 = st.columns(3)
+            with cp1:
+                q_pk_loai = st.selectbox("Loại phụ kiện cần tìm", ["Tất cả"] + DANH_SACH_PHU_KIEN, key="q_pk_loai")
+                q_pk_ten = st.text_input("Tên phụ kiện (máng, diềm, nóc, U, V...)", key="q_pk_ten").strip()
+            with cp2:
+                q_pk_mau = st.text_input("Màu sắc cần", key="q_pk_mau").strip()
+                q_pk_day = st.number_input("Độ dày tối thiểu (dem/mm)", value=0.30, step=0.05, key="q_pk_day")
+            with cp3:
+                q_pk_dai = st.number_input("Chiều dài tối thiểu (m)", value=1.0, step=0.1, key="q_pk_dai")
+                btn_tim_pk = st.form_submit_button("🔎 Quét kho tìm phụ kiện", type="primary")
+
+        if btn_tim_pk:
+            st.session_state.pk_search_params = {
+                "loai": q_pk_loai, "ten": q_pk_ten, "mau": q_pk_mau, "day": q_pk_day, "dai": q_pk_dai
+            }
+
+        if "pk_search_params" in st.session_state:
+            pk_p = st.session_state.pk_search_params
+            df_pk_all = load_pk_data()
+            df_pk_all = df_pk_all[(df_pk_all["Số tấm còn"] > 0) & (~df_pk_all["Trạng thái"].str.contains("Đã xử lý", na=False))]
+
+            if not df_pk_all.empty:
+                df_pk_matched = df_pk_all[df_pk_all["Độ dài ghép được (m)"] >= pk_p["dai"]].copy()
+                if pk_p["day"] > 0:
+                    df_pk_matched = df_pk_matched[df_pk_matched["Dày (mm)"].round(2) >= round(pk_p["day"], 2)]
+                if pk_p["loai"] != "Tất cả":
+                    df_pk_matched = df_pk_matched[df_pk_matched["Loại phụ kiện"] == pk_p["loai"]]
+                if pk_p["ten"]:
+                    df_pk_matched = df_pk_matched[df_pk_matched["Tên phụ kiện"].apply(lambda x: xoa_dau_tieng_viet(pk_p["ten"]) in xoa_dau_tieng_viet(x))]
+                if pk_p["mau"]:
+                    df_pk_matched = df_pk_matched[df_pk_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(pk_p["mau"]) in xoa_dau_tieng_viet(x))]
+
+                if not df_pk_matched.empty:
+                    st.success(f"🎯 Tìm thấy {len(df_pk_matched)} vị trí phụ kiện đủ điều kiện:")
+                    st.dataframe(df_pk_matched, width='stretch')
+
+                    with st.form("form_confirm_ghep_pk_now"):
+                        pk_id_chon = st.selectbox("Chọn ID phụ kiện muốn lấy", df_pk_matched['id'].tolist())
+                        r_pk = df_pk_matched[df_pk_matched['id'] == pk_id_chon].iloc[0]
+                        
+                        pk_L_goc = safe_float(r_pk['Dài 1 tấm (m)'])
+                        pk_T_ton = safe_int(r_pk['Số tấm còn'])
+                        
+                        g_pk1, g_pk2, g_pk3 = st.columns(3)
+                        with g_pk1:
+                            pk_don_moi = st.text_input("Mã đơn mới ghép vào *", key="pk_don_moi").strip()
+                        with g_pk2:
+                            pk_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pk_T_ton, value=1, key="pk_tam_lay")
+                        with g_pk3:
+                            pk_cut_to = st.number_input("Xuống kích thước (m) *", value=pk_p["dai"], min_value=0.1, max_value=pk_L_goc, step=0.1, key="pk_cut_to")
+
+                        g_pk4, g_pk5 = st.columns(2)
+                        with g_pk4:
+                            pk_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pk_nv_lay")
+                        with g_pk5:
+                            pk_ngay_lay = st.date_input("Ngày ghép", datetime.date.today(), key="pk_ngay_lay_search")
+
+                        pk_tam_val = safe_int(pk_tam_lay, 1)
+                        pk_cut_val = safe_float(pk_cut_to, pk_p["dai"])
+                        pk_m_lay = float(pk_tam_val * pk_cut_val)
+                        pk_phe_val = float(pk_tam_val * (pk_L_goc - pk_cut_val))
+                        pk_tam_con = pk_T_ton - pk_tam_val
+                        pk_m_con = float(pk_tam_con * pk_L_goc)
+
+                        st.write(f"👉 Xuất ghép: **{pk_m_lay:.2f} m** | Phế cắt: **{pk_phe_val:.2f} m** | Tồn kho còn lại: **{pk_tam_con} tấm** ({pk_m_con:.2f} m)")
+
+                        if st.form_submit_button("✅ Xác nhận Ghép và Trừ kho Phụ kiện", type="primary"):
+                            if pk_don_moi:
+                                target_pk_id = int(pk_id_chon)
+                                with engine.connect() as conn:
+                                    conn.execute(text("""
+                                    UPDATE accessory_inventory 
+                                    SET current_sheets = :tc, total_meters = :mc, trang_thai = :tt, 
+                                        don_da_ghep = :dg, nguoi_ghep = :ng, ngay_ghep = :ngp 
+                                    WHERE id = :id
+                                    """), {
+                                        "tc": pk_tam_con, "mc": pk_m_con, "tt": "Đã xử lý" if pk_tam_con == 0 else "Chưa xử lý", 
+                                        "dg": safe_str(pk_don_moi), "ng": safe_str(pk_nguoi_lay), 
+                                        "ngp": safe_date(pk_ngay_lay), "id": target_pk_id
+                                    })
+                                    conn.execute(text("""
+                                    INSERT INTO accessory_matching_history (accessory_id, new_order_code, matched_sheets, matched_meters, matched_by, matched_date) 
+                                    VALUES (:aid, :od, :ms, :mm, :mb, :md)
+                                    """), {
+                                        "aid": target_pk_id, "od": safe_str(pk_don_moi), "ms": pk_tam_val, 
+                                        "mm": float(pk_m_lay), "mb": safe_str(pk_nguoi_lay), "md": safe_date(pk_ngay_lay)
+                                    })
+                                    conn.commit()
+                                st.cache_data.clear()
+                                del st.session_state.pk_search_params
+                                st.session_state["msg_success"] = f"✅ Đã trừ {pk_tam_val} tấm phụ kiện vào đơn {pk_don_moi}! Phế phát sinh: {pk_phe_val:.2f}m."
+                                st.rerun()
+                else:
+                    st.info("Không có phụ kiện nào thỏa mãn điều kiện yêu cầu.")
+            else:
+                st.info("Kho hiện tại không có phụ kiện chưa xử lý.")
+
+    # 5.3 GHÉP PANEL
+    with tab_ghep_pn:
+        st.subheader("🧱 Tìm kiếm & Xuất ghép Panel")
+        with st.form("form_tim_kiem_pn"):
+            pn_c1, pn_c2, pn_c3 = st.columns(3)
+            with pn_c1:
+                q_pn_hang = st.text_input("Hãng tôn mặt Panel", key="q_pn_hang").strip()
+                q_pn_core = st.selectbox("Độ dày Panel", ["Tất cả"] + DANH_SACH_DO_DAY_PANEL, key="q_pn_core")
+            with pn_c2:
+                q_pn_mau = st.selectbox("Màu sắc tôn mặt", ["Tất cả"] + DANH_SACH_MAU_PANEL, key="q_pn_mau")
+                q_pn_kho = st.selectbox("Khổ tôn yêu cầu", ["Tất cả"] + DANH_SACH_KHO_PANEL, key="q_pn_kho")
+            with pn_c3:
+                q_pn_dai = st.number_input("Chiều dài tối thiểu (m)", value=2.0, step=0.1, key="q_pn_dai")
+                btn_tim_pn = st.form_submit_button("🔎 Quét kho tìm Panel", type="primary")
+
+        if btn_tim_pn:
+            st.session_state.pn_search_params = {
+                "hang": q_pn_hang, "core": q_pn_core, "mau": q_pn_mau, "kho": q_pn_kho, "dai": q_pn_dai
+            }
+
+        if "pn_search_params" in st.session_state:
+            pn_p = st.session_state.pn_search_params
+            df_pn_all = load_panel_data()
+            df_pn_all = df_pn_all[df_pn_all["Số tấm còn"] > 0]
+
+            if not df_pn_all.empty:
+                df_pn_matched = df_pn_all[df_pn_all["Độ dài ghép được (m)"] >= pn_p["dai"]].copy()
+                if pn_p["hang"]:
+                    df_pn_matched = df_pn_matched[df_pn_matched["Hãng tôn"].apply(lambda x: xoa_dau_tieng_viet(pn_p["hang"]) in xoa_dau_tieng_viet(x))]
+                if pn_p["mau"] != "Tất cả":
+                    df_pn_matched = df_pn_matched[df_pn_matched["Màu"] == pn_p["mau"]]
+                if pn_p["core"] != "Tất cả":
+                    df_pn_matched = df_pn_matched[df_pn_matched["Độ dày Panel"] == pn_p["core"]]
+                if pn_p["kho"] != "Tất cả":
+                    df_pn_matched = df_pn_matched[df_pn_matched["Khổ tôn"] == pn_p["kho"]]
+
+                if not df_pn_matched.empty:
+                    st.success(f"🎯 Tìm thấy {len(df_pn_matched)} vị trí Panel đủ điều kiện ghép:")
+                    st.dataframe(df_pn_matched, width='stretch')
+
+                    with st.form("form_confirm_ghep_pn_now"):
+                        pn_id_chon = st.selectbox("Chọn ID Panel muốn lấy", df_pn_matched['id'].tolist())
+                        r_pn = df_pn_matched[df_pn_matched['id'] == pn_id_chon].iloc[0]
+                        
+                        pn_L_goc = safe_float(r_pn['Dài 1 tấm (m)'])
+                        pn_T_ton = safe_int(r_pn['Số tấm còn'])
+                        he_so = 1.02 if "1020" in r_pn['Khổ tôn'] else 1.17
+                        
+                        g_pn1, g_pn2, g_pn3 = st.columns(3)
+                        with g_pn1:
+                            pn_don_moi = st.text_input("Mã đơn hàng ghép vào *", key="pn_don_moi").strip()
+                        with g_pn2:
+                            pn_tam_lay = st.number_input("Số lượng tấm lấy ghép *", min_value=1, max_value=pn_T_ton, value=1, key="pn_tam_lay")
+                        with g_pn3:
+                            pn_cut_to = st.number_input("Xuống kích thước (m) *", value=pn_p["dai"], min_value=0.1, max_value=pn_L_goc, step=0.1, key="pn_cut_to")
+
+                        pn_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pn_nv_lay")
+
+                        pn_tam_val = safe_int(pn_tam_lay, 1)
+                        pn_cut_val = safe_float(pn_cut_to, pn_p["dai"])
+                        
+                        pn_m_lay = float(pn_tam_val * pn_cut_val)
+                        pn_m2_lay = float(pn_m_lay * he_so)
+                        pn_phe_val = float(pn_tam_val * (pn_L_goc - pn_cut_val))
+                        pn_tam_con = pn_T_ton - pn_tam_val
+                        pn_m_con = float(pn_tam_con * pn_L_goc)
+                        pn_m2_con = float(pn_m_con * he_so)
+
+                        st.write(f"👉 Xuất: **{pn_m_lay:.2f} m** ({pn_m2_lay:.2f} m²) | Phế phát sinh: **{pn_phe_val:.2f} m** | Tồn kho còn lại: **{pn_tam_con} tấm** ({pn_m_con:.2f} m)")
+
+                        if st.form_submit_button("✅ Xác nhận Ghép và Trừ kho Panel", type="primary"):
+                            if pn_don_moi:
+                                target_pn_id = int(pn_id_chon)
+                                pn_phe_cu = safe_float(r_pn['Phế (m)'])
+                                pn_tong_phe = pn_phe_cu + pn_phe_val
+                                
+                                with engine.connect() as conn:
+                                    conn.execute(text("""
+                                        UPDATE panel_inventory 
+                                        SET current_sheets = :tc, total_meters = :mc, total_area_m2 = :m2c, 
+                                            remaining_meters = :rm, scrap_meters = :sm, is_matched = :im,
+                                            matched_order_code = :moc, matched_by_user = :mbu,
+                                            matched_length = :ml, matched_sheets = :ms
+                                        WHERE id = :id
+                                    """), {
+                                        "tc": pn_tam_con, "mc": pn_m_con, "m2c": pn_m2_con, "rm": pn_m_con, 
+                                        "sm": pn_tong_phe, "im": "Đã ghép" if pn_tam_con == 0 else "Chưa ghép",
+                                        "moc": safe_str(pn_don_moi), "mbu": safe_str(pn_nguoi_lay),
+                                        "ml": pn_cut_val, "ms": pn_tam_val, "id": target_pn_id
+                                    })
+                                    conn.execute(text("""
+                                        INSERT INTO panel_matching_history (panel_id, new_order_code, matched_sheets, matched_meters, matched_m2, matched_by) 
+                                        VALUES (:pid, :od, :ms, :mm, :m2, :mb)
+                                    """), {
+                                        "pid": target_pn_id, "od": safe_str(pn_don_moi), "ms": pn_tam_val, 
+                                        "mm": float(pn_m_lay), "m2": float(pn_m2_lay), "mb": safe_str(pn_nguoi_lay)
+                                    })
+                                    conn.commit()
+                                st.cache_data.clear()
+                                del st.session_state.pn_search_params
+                                st.session_state["msg_success"] = f"✅ Đã trừ {pn_tam_val} tấm Panel vào đơn {pn_don_moi}! Phế phát sinh: {pn_phe_val:.2f}m."
+                                st.rerun()
+                else:
+                    st.info("Không có tấm Panel nào trong kho thỏa mãn tiêu chí.")
+            else:
+                st.info("Kho hiện tại không có panel lỗi tồn kho.")
+
+# =============================================================
+# 6. NHẬP KHO HÓA CHẤT
 # =============================================================
 elif lua_chon == "📥 Nhập kho Hóa chất":
     st.title("📥 Nhập Kho Hóa Chất")
@@ -733,7 +1339,7 @@ elif lua_chon == "📥 Nhập kho Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 3. NHẬT KÝ SẢN XUẤT HÓA CHẤT
+# 7. NHẬT KÝ SẢN XUẤT HÓA CHẤT
 # =============================================================
 elif lua_chon == "📝 Nhật ký SX Hóa chất":
     st.title("📝 Nhật Ký Sản Xuất Hóa Chất")
@@ -853,7 +1459,7 @@ elif lua_chon == "📝 Nhật ký SX Hóa chất":
                     st.rerun()
 
 # =============================================================
-# 4. TỒN KHO HÓA CHẤT & ĐỊNH MỨC
+# 8. TỒN KHO HÓA CHẤT & ĐỊNH MỨC
 # =============================================================
 elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
     st.markdown("<h2 style='text-align: center;'>TỒN KHO HÓA CHẤT CHƯƠNG MỸ</h2>", unsafe_allow_html=True)
@@ -1021,320 +1627,7 @@ elif lua_chon == "🧪 Tồn kho & Định mức Hóa chất":
             st.rerun()
 
 # =============================================================
-# 5. ✂️ TÌM KIẾM & GHÉP ĐƠN TỰ ĐỘNG (HOÀN CHỈNH & NÂNG CẤP)
-# =============================================================
-elif lua_chon == "✂️ Tìm kiếm & Ghép đơn":
-    tab_ghep_ton, tab_ghep_pk, tab_ghep_pn = st.tabs(["✂️ Ghép Tôn tấm", "🛠️ Xuất / Ghép Phụ kiện", "🧱 Xuất / Ghép Panel"])
-    
-    # 5.1 GHÉP TÔN TẤM TỰ ĐỘNG
-    with tab_ghep_ton:
-        st.subheader("✂️ Tìm kiếm thông minh ghép Tôn mới")
-        with st.form("form_tim_kiem_ton"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                s_hang = st.selectbox("Hãng tôn", ["Tất cả"] + DANH_SACH_HANG_TON, key="gt_hang")
-                s_mau = st.text_input("Màu sắc cần (đen, xanh, đỏ...)", key="gt_mau").strip()
-                s_day = st.number_input("Độ dày yêu cầu tối thiểu (dem/mm)", value=0.35, step=0.05, key="gt_day")
-            with c2:
-                s_song = st.selectbox("Loại sóng", ["Tất cả"] + DANH_SACH_SONG, key="gt_song")
-                s_ton = st.selectbox("Loại tôn", ["Tất cả"] + DANH_SACH_LOAI_TON, key="gt_ton")
-                s_xop = st.selectbox("Cấp xốp tối thiểu", ["Tất cả"] + DANH_SACH_XOP, key="gt_xop")
-            with c3:
-                s_dai = st.number_input("Độ dài cần cắt ghép (m) *", value=1.5, step=0.1, key="gt_dai")
-                st.write("")
-                st.write("")
-                btn_tim_ton = st.form_submit_button("🔎 Quét kho tìm tôn tự động", type="primary")
-
-        if btn_tim_ton:
-            st.session_state.ton_search_params = {
-                "hang": s_hang, "mau": s_mau, "day": s_day,
-                "song": s_song, "ton": s_ton, "xop": s_xop, "dai": s_dai
-            }
-
-        if "ton_search_params" in st.session_state:
-            p = st.session_state.ton_search_params
-            df_all_ton = load_ton_data()
-            
-            # Lọc các lô còn tồn kho thực tế
-            df_all_ton = df_all_ton[df_all_ton["Số tấm còn"] > 0].copy()
-
-            if not df_all_ton.empty:
-                # Điều kiện tiên quyết: Độ dài ghép được >= độ dài cần cắt
-                df_matched = df_all_ton[df_all_ton["Độ dài ghép được (m)"] >= p["dai"]].copy()
-                
-                # Độ dày phải >= độ dày yêu cầu
-                if p["day"] > 0:
-                    df_matched = df_matched[df_matched["Dày (mm)"].round(2) >= round(p["day"], 2)]
-
-                # Lọc theo các tiêu chí nếu không chọn "Tất cả"
-                if p["hang"] != "Tất cả":
-                    df_matched = df_matched[df_matched["Hãng"] == p["hang"]]
-                if p["mau"]:
-                    df_matched = df_matched[df_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(p["mau"]) in xoa_dau_tieng_viet(x))]
-                if p["song"] != "Tất cả":
-                    df_matched = df_matched[df_matched["Sóng"] == p["song"]]
-                if p["ton"] != "Tất cả":
-                    df_matched = df_matched[df_matched["Loại tôn"] == p["ton"]]
-
-                if not df_matched.empty:
-                    # Thuật toán so khớp cấp xốp
-                    if p["xop"] != "Tất cả":
-                        req_rank = XOP_RANKS.get(p["xop"], 0)
-                        df_matched['rank'] = df_matched['Quy cách xốp/ngói'].map(lambda x: XOP_RANKS.get(x, 0))
-                        df_final = df_matched[df_matched['rank'] >= req_rank].copy()
-                    else:
-                        df_final = df_matched.copy()
-                        df_final['rank'] = 0
-                        req_rank = 0
-
-                    if not df_final.empty:
-                        # Tối ưu hóa lựa chọn tốt nhất (sát kích thước, sát cấp xốp nhất để tránh lãng phí)
-                        df_final['lech_xop'] = df_final['rank'] - req_rank
-                        df_final['lech_day'] = df_final['Dày (mm)'] - p["day"]
-                        df_final['du_dai'] = df_final['Độ dài ghép được (m)'] - p["dai"]
-                        
-                        df_sorted = df_final.sort_values(by=['lech_xop', 'lech_day', 'du_dai']).drop(columns=['rank', 'lech_xop', 'lech_day', 'du_dai'])
-
-                        st.success(f"🎯 Đã tìm thấy **{len(df_sorted)}** vị trí tôn lỗi đạt chuẩn ghép:")
-                        st.dataframe(df_sorted, width='stretch')
-
-                        # Form thực hiện ghép đơn và trừ kho
-                        st.markdown("### 📝 Điền thông tin ghép đơn và tự động xuất kho:")
-                        with st.form("form_confirm_ghep_ton_now"):
-                            id_ghep = st.selectbox("Chọn ID lô tôn cần lấy ghép:", df_sorted['id'].tolist())
-                            r_target = df_sorted[df_sorted['id'] == id_ghep].iloc[0]
-                            
-                            st.info(f"Đang chọn Lô ID **{id_ghep}** | Hãng: **{r_target['Hãng']}** | Màu: **{r_target['Màu']}** | Vị trí: **{r_target['Vị trí']}**\n* Chiều dài: **{r_target['Dài (m)']}m** (Ghép được: **{r_target['Độ dài ghép được (m)']}m**) | Tồn: **{r_target['Số tấm còn']} tấm**")
-                            
-                            cg1, cg2, cg3 = st.columns(3)
-                            with cg1:
-                                ma_moi = st.text_input("Mã đơn hàng ghép vào *", placeholder="Ví dụ: DH0809...").strip()
-                            with cg2:
-                                tam_ghep = st.number_input("Số tấm cần lấy *", min_value=1, max_value=int(r_target['Số tấm còn']), value=1)
-                                met_ghep = tam_ghep * p["dai"]
-                                st.caption(f"👉 Tổng mét xuất ghép: **{met_ghep:.2f} m**")
-                            with cg3:
-                                nguoi_ghep = st.text_input("Tên nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "").strip()
-
-                            btn_ghep_ton_submit = st.form_submit_button("✅ Xác nhận Ghép và Tự động trừ kho", type="primary")
-
-                            if btn_ghep_ton_submit:
-                                if not ma_moi:
-                                    st.error("Vui lòng điền mã đơn hàng mới ghép vào!")
-                                else:
-                                    tam_ghep_int = safe_int(tam_ghep, 1)
-                                    tam_con = safe_int(r_target['Số tấm còn']) - tam_ghep_int
-                                    met_con = float(tam_con * safe_float(r_target['Dài (m)']))
-                                    trang_thai_moi = "Đã ghép" if tam_con == 0 else "Chưa ghép"
-                                    target_ton_id = int(id_ghep)
-                                    
-                                    with engine.connect() as conn:
-                                        conn.execute(text("""
-                                            UPDATE inventory 
-                                            SET current_sheets = :tc, 
-                                                total_meters = :mc, 
-                                                remaining_meters = :rm, 
-                                                is_matched = :im, 
-                                                matched_order_code = :moc, 
-                                                matched_by_user = :mbu, 
-                                                matched_length = :ml, 
-                                                matched_sheets = :ms 
-                                            WHERE id = :id
-                                        """), {
-                                            "tc": tam_con, "mc": met_con, "rm": met_con, "im": trang_thai_moi,
-                                            "moc": safe_str(ma_moi), "mbu": safe_str(nguoi_ghep), "ml": safe_float(p["dai"]),
-                                            "ms": tam_ghep_int, "id": target_ton_id
-                                        })
-                                        conn.execute(text("""
-                                            INSERT INTO matching_history (inventory_id, new_order_code, matched_sheets, matched_length, matched_meters, matched_by, matched_date) 
-                                            VALUES (:iid, :od, :ms, :ml, :mm, :mb, CURRENT_DATE)
-                                        """), {
-                                            "iid": target_ton_id, "od": safe_str(ma_moi), "ms": tam_ghep_int, 
-                                            "ml": safe_float(p["dai"]), "mm": float(met_ghep), "mb": safe_str(nguoi_ghep)
-                                        })
-                                        conn.commit()
-                                        
-                                    st.cache_data.clear()
-                                    del st.session_state.ton_search_params
-                                    st.session_state["msg_success"] = f"✅ Đã ghép thành công {tam_ghep_int} tấm ({met_ghep:.2f}m) vào đơn {ma_moi}! Vị trí {r_target['Vị trí']} còn lại {tam_con} tấm ({met_con:.2f}m)."
-                                    st.rerun()
-                    else:
-                        st.warning("⚠️ Có lô phù hợp kích thước nhưng cấp xốp mềm hơn yêu cầu!")
-                else:
-                    st.info("Không tìm thấy tấm tôn nào thỏa mãn điều kiện yêu cầu.")
-            else:
-                st.info("Kho hiện tại không có tôn lỗi tồn kho.")
-
-    # 5.2 GHÉP PHỤ KIỆN
-    with tab_ghep_pk:
-        st.subheader("🛠️ Tìm kiếm & Xuất ghép Phụ kiện")
-        with st.form("form_tim_kiem_pk"):
-            cp1, cp2, cp3 = st.columns(3)
-            with cp1:
-                q_pk_loai = st.selectbox("Loại phụ kiện cần tìm", ["Tất cả"] + DANH_SACH_PHU_KIEN, key="q_pk_loai")
-                q_pk_ten = st.text_input("Tên phụ kiện (máng, diềm, nóc, U, V...)", key="q_pk_ten").strip()
-            with cp2:
-                q_pk_mau = st.text_input("Màu sắc cần", key="q_pk_mau").strip()
-                q_pk_day = st.number_input("Độ dày tối thiểu (dem/mm)", value=0.30, step=0.05, key="q_pk_day")
-            with cp3:
-                q_pk_dai = st.number_input("Chiều dài tối thiểu (m)", value=1.0, step=0.1, key="q_pk_dai")
-                btn_tim_pk = st.form_submit_button("🔎 Quét kho tìm phụ kiện", type="primary")
-
-        if btn_tim_pk:
-            st.session_state.pk_search_params = {
-                "loai": q_pk_loai, "ten": q_pk_ten, "mau": q_pk_mau, "day": q_pk_day, "dai": q_pk_dai
-            }
-
-        if "pk_search_params" in st.session_state:
-            pk_p = st.session_state.pk_search_params
-            df_pk_all = load_pk_data()
-            df_pk_all = df_pk_all[(df_pk_all["Số tấm còn"] > 0) & (~df_pk_all["Trạng thái"].str.contains("Đã xử lý", na=False))]
-
-            if not df_pk_all.empty:
-                df_pk_matched = df_pk_all[df_pk_all["Độ dài ghép được (m)"] >= pk_p["dai"]].copy()
-                if pk_p["day"] > 0:
-                    df_pk_matched = df_pk_matched[df_pk_matched["Dày (mm)"].round(2) >= round(pk_p["day"], 2)]
-                if pk_p["loai"] != "Tất cả":
-                    df_pk_matched = df_pk_matched[df_pk_matched["Loại phụ kiện"] == pk_p["loai"]]
-                if pk_p["ten"]:
-                    df_pk_matched = df_pk_matched[df_pk_matched["Tên phụ kiện"].apply(lambda x: xoa_dau_tieng_viet(pk_p["ten"]) in xoa_dau_tieng_viet(x))]
-                if pk_p["mau"]:
-                    df_pk_matched = df_pk_matched[df_pk_matched["Màu"].apply(lambda x: xoa_dau_tieng_viet(pk_p["mau"]) in xoa_dau_tieng_viet(x))]
-
-                if not df_pk_matched.empty:
-                    st.success(f"🎯 Tìm thấy {len(df_pk_matched)} vị trí phụ kiện đủ điều kiện:")
-                    st.dataframe(df_pk_matched, width='stretch')
-
-                    with st.form("form_confirm_ghep_pk_now"):
-                        pk_id_chon = st.selectbox("Chọn ID phụ kiện muốn lấy", df_pk_matched['id'].tolist())
-                        r_pk = df_pk_matched[df_pk_matched['id'] == pk_id_chon].iloc[0]
-                        g_pk1, g_pk2, g_pk3 = st.columns(3)
-                        with g_pk1:
-                            pk_don_moi = st.text_input("Mã đơn mới ghép vào *", key="pk_don_moi").strip()
-                        with g_pk2:
-                            pk_tam_lay = st.number_input("Số tấm cần lấy", min_value=1, max_value=int(r_pk['Số tấm còn']), value=1, key="pk_tam_lay")
-                            pk_m_lay = pk_tam_lay * float(r_pk['Dài 1 tấm (m)'])
-                            st.info(f"Tổng mét: **{pk_m_lay:.2f} m**")
-                        with g_pk3:
-                            pk_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pk_nv_lay")
-                            pk_ngay_lay = st.date_input("Ngày ghép", datetime.date.today(), key="pk_ngay_lay_search")
-
-                        if st.form_submit_button("✅ Xác nhận Ghép và Trừ kho Phụ kiện", type="primary"):
-                            if pk_don_moi:
-                                pk_tam_lay_int = safe_int(pk_tam_lay, 1)
-                                pk_tam_con = safe_int(r_pk['Số tấm còn']) - pk_tam_lay_int
-                                pk_m_con = float(pk_tam_con * safe_float(r_pk['Dài 1 tấm (m)']))
-                                target_pk_id = int(pk_id_chon)
-                                with engine.connect() as conn:
-                                    conn.execute(text("""
-                                    UPDATE accessory_inventory 
-                                    SET current_sheets = :tc, total_meters = :mc, trang_thai = :tt, 
-                                        don_da_ghep = :dg, nguoi_ghep = :ng, ngay_ghep = :ngp 
-                                    WHERE id = :id
-                                    """), {
-                                        "tc": pk_tam_con, "mc": pk_m_con, "tt": "Đã xử lý" if pk_tam_con == 0 else "Chưa xử lý", 
-                                        "dg": safe_str(pk_don_moi), "ng": safe_str(pk_nguoi_lay), 
-                                        "ngp": safe_date(pk_ngay_lay), "id": target_pk_id
-                                    })
-                                    conn.execute(text("""
-                                    INSERT INTO accessory_matching_history (accessory_id, new_order_code, matched_sheets, matched_meters, matched_by, matched_date) 
-                                    VALUES (:aid, :od, :ms, :mm, :mb, :md)
-                                    """), {
-                                        "aid": target_pk_id, "od": safe_str(pk_don_moi), "ms": pk_tam_lay_int, 
-                                        "mm": float(pk_m_lay), "mb": safe_str(pk_nguoi_lay), "md": safe_date(pk_ngay_lay)
-                                    })
-                                    conn.commit()
-                                st.cache_data.clear()
-                                del st.session_state.pk_search_params
-                                st.session_state["msg_success"] = f"✅ Đã trừ {pk_tam_lay_int} tấm {r_pk['Loại phụ kiện']} vào đơn {pk_don_moi}!"
-                                st.rerun()
-                else:
-                    st.info("Không có phụ kiện nào thỏa mãn điều kiện yêu cầu.")
-            else:
-                st.info("Kho hiện tại không có phụ kiện chưa xử lý.")
-
-    # 5.3 GHÉP PANEL
-    with tab_ghep_pn:
-        st.subheader("🧱 Tìm kiếm & Xuất ghép Panel")
-        with st.form("form_tim_kiem_pn"):
-            pn_c1, pn_c2, pn_c3 = st.columns(3)
-            with pn_c1:
-                q_pn_hang = st.text_input("Hãng tôn mặt Panel", key="q_pn_hang").strip()
-                q_pn_core = st.selectbox("Độ dày Panel", ["Tất cả"] + DANH_SACH_DO_DAY_PANEL, key="q_pn_core")
-            with pn_c2:
-                q_pn_mau = st.selectbox("Màu sắc tôn mặt", ["Tất cả"] + DANH_SACH_MAU_PANEL, key="q_pn_mau")
-                q_pn_kho = st.selectbox("Khổ tôn yêu cầu", ["Tất cả"] + DANH_SACH_KHO_PANEL, key="q_pn_kho")
-            with pn_c3:
-                q_pn_dai = st.number_input("Chiều dài tối thiểu (m)", value=2.0, step=0.1, key="q_pn_dai")
-                btn_tim_pn = st.form_submit_button("🔎 Quét kho tìm Panel", type="primary")
-
-        if btn_tim_pn:
-            st.session_state.pn_search_params = {
-                "hang": q_pn_hang, "core": q_pn_core, "mau": q_pn_mau, "kho": q_pn_kho, "dai": q_pn_dai
-            }
-
-        if "pn_search_params" in st.session_state:
-            pn_p = st.session_state.pn_search_params
-            df_pn_all = load_panel_data()
-            df_pn_all = df_pn_all[df_pn_all["Số tấm còn"] > 0]
-
-            if not df_pn_all.empty:
-                df_pn_matched = df_pn_all[df_pn_all["Độ dài ghép được (m)"] >= pn_p["dai"]].copy()
-                if pn_p["hang"]:
-                    df_pn_matched = df_pn_matched[df_pn_matched["Hãng tôn"].apply(lambda x: xoa_dau_tieng_viet(pn_p["hang"]) in xoa_dau_tieng_viet(x))]
-                if pn_p["mau"] != "Tất cả":
-                    df_pn_matched = df_pn_matched[df_pn_matched["Màu"] == pn_p["mau"]]
-                if pn_p["core"] != "Tất cả":
-                    df_pn_matched = df_pn_matched[df_pn_matched["Độ dày Panel"] == pn_p["core"]]
-                if pn_p["kho"] != "Tất cả":
-                    df_pn_matched = df_pn_matched[df_pn_matched["Khổ tôn"] == pn_p["kho"]]
-
-                if not df_pn_matched.empty:
-                    st.success(f"🎯 Tìm thấy {len(df_pn_matched)} vị trí Panel đủ điều kiện ghép:")
-                    st.dataframe(df_pn_matched, width='stretch')
-
-                    with st.form("form_confirm_ghep_pn_now"):
-                        pn_id_chon = st.selectbox("Chọn ID Panel muốn lấy", df_pn_matched['id'].tolist())
-                        r_pn = df_pn_matched[df_pn_matched['id'] == pn_id_chon].iloc[0]
-                        g_pn1, g_pn2, g_pn3 = st.columns(3)
-                        with g_pn1:
-                            pn_don_moi = st.text_input("Mã đơn hàng ghép vào *", key="pn_don_moi").strip()
-                        with g_pn2:
-                            pn_tam_lay = st.number_input("Số tấm cần lấy", min_value=1, max_value=int(r_pn['Số tấm còn']), value=1, key="pn_tam_lay")
-                            pn_m_lay = pn_tam_lay * float(r_pn['Dài 1 tấm (m)'])
-                            he_so = 1.02 if "1020" in r_pn['Khổ tôn'] else 1.17
-                            pn_m2_lay = pn_m_lay * he_so
-                            st.info(f"Xuất: **{pn_m_lay:.2f} m** | Diện tích: **{pn_m2_lay:.2f} m²**")
-                        with g_pn3:
-                            pn_nguoi_lay = st.text_input("Nhân viên ghép", value=st.session_state.user['name'] if st.session_state.user else "", key="pn_nv_lay")
-
-                        if st.form_submit_button("✅ Xác nhận Ghép và Trừ kho Panel", type="primary"):
-                            if pn_don_moi:
-                                pn_tam_lay_int = safe_int(pn_tam_lay, 1)
-                                pn_tam_con = safe_int(r_pn['Số tấm còn']) - pn_tam_lay_int
-                                pn_m_con = float(pn_tam_con * safe_float(r_pn['Dài 1 tấm (m)']))
-                                pn_m2_con = float(pn_m_con * he_so)
-                                target_pn_id = int(pn_id_chon)
-                                with engine.connect() as conn:
-                                    conn.execute(text("""
-                                        UPDATE panel_inventory SET current_sheets = :tc, total_meters = :mc, total_area_m2 = :m2c, is_matched = :im WHERE id = :id
-                                    """), {"tc": pn_tam_con, "mc": pn_m_con, "m2c": pn_m2_con, "im": "Đã ghép" if pn_tam_con == 0 else "Chưa ghép", "id": target_pn_id})
-                                    conn.execute(text("""
-                                        INSERT INTO panel_matching_history (panel_id, new_order_code, matched_sheets, matched_meters, matched_m2, matched_by) 
-                                        VALUES (:pid, :od, :ms, :mm, :m2, :mb)
-                                    """), {"pid": target_pn_id, "od": safe_str(pn_don_moi), "ms": pn_tam_lay_int, "mm": float(pn_m_lay), "m2": float(pn_m2_lay), "mb": safe_str(pn_nguoi_lay)})
-                                    conn.commit()
-                                st.cache_data.clear()
-                                del st.session_state.pn_search_params
-                                st.session_state["msg_success"] = f"✅ Đã trừ {pn_tam_lay_int} tấm Panel vào đơn {pn_don_moi}!"
-                                st.rerun()
-                else:
-                    st.info("Không có tấm Panel nào trong kho thỏa mãn tiêu chí.")
-            else:
-                st.info("Kho hiện tại không có panel lỗi tồn kho.")
-
-# =============================================================
-# 6. BÁO CÁO DASHBOARD
+# 9. BÁO CÁO DASHBOARD
 # =============================================================
 elif lua_chon == "📊 Báo cáo Dashboard":
     st.title("📊 Báo cáo Thống kê Toàn xưởng (Tôn - Phụ kiện - Panel)")
@@ -1436,7 +1729,7 @@ elif lua_chon == "📊 Báo cáo Dashboard":
         else: st.info("Không có dữ liệu ghép hàng.")
 
 # =============================================================
-# 7. PHÊ DUYỆT TÀI KHOẢN
+# 10. PHÊ DUYỆT TÀI KHOẢN
 # =============================================================
 elif lua_chon == "👑 Phê duyệt & Cấp quyền tài khoản":
     st.title("👑 Quản trị & Phê duyệt nhân viên")
